@@ -67,7 +67,7 @@ def segmentation(image):
 
 
 def dog(image):
-    blobs_dog = blob_dog(image, max_sigma=30, threshold=0.1)
+    blobs_dog = blob_dog(image, max_sigma=10, threshold=0.1)
     blobs_dog[:, 2] = blobs_dog[:, 2] * sqrt(2)
     return blobs_dog
 

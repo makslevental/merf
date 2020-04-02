@@ -1,11 +1,15 @@
+import glob
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy
 from scipy.stats import median_absolute_deviation as mad
 from skimage import exposure
-from skimage.filters import threshold_otsu
+from skimage.color import rgb2gray
+from skimage.filters import try_all_threshold
 from skimage.io import imread
+
+match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
 
 
 def mad_normalize(x):
@@ -45,7 +49,8 @@ def show(img):
 
 
 def stretch(img):
-    p2, p98 = numpy.percentile(img, (2, 98))
+    img[img > 1500] = 0
+    p2, p98 = numpy.percentile(img, (1, 99.5))
     return exposure.rescale_intensity(img, in_range=(p2, p98))
 
 
@@ -57,29 +62,35 @@ def log_transform(img):
     return exposure.adjust_log(img)
 
 
+def match(img, reference=match_img):
+    return exposure.match_histograms(img, reference)
+
+
 def threshold(img):
-    thresh = threshold_otsu(img)
-    binary = numpy.copy(img)
-    binary[binary > thresh] = 1
-    binary[binary < thresh] = 0
-    return binary
+    # thresh = threshold_otsu(img)
+    # binary = numpy.copy(img)
+    # binary[binary > thresh] = 1
+    # binary[binary < thresh] = 0
+    # return binary
+    fig, ax = try_all_threshold(img, figsize=(10, 8), verbose=False)
+    plt.show()
 
 
 if __name__ == "__main__":
-    data_pth = Path("RawData/")
-    image_fn = Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF")
-    image_pth = data_pth / image_fn
-
-    img_org = imread(image_pth)
-    show(img_org)
-
-    g = gamma(img_org)
-    show(g)
+    # data_pth = Path("RawData")
+    # image_fn = Path("R-233_5-8-6_000111.T000.D000.P000.H000.PLIF1.TIF")
+    # image_pth = data_pth / image_fn
+    for image_fn in glob.glob("RawData/*.TIF"):
+        img_org = imread(image_fn)
+        m = match(img_org)
+        show(m)
+    # g = gamma(img_org)
+    # show(g)
 
     # c = clahe(img_org)
     # show(c)
     #
-    # t = threshold(c)
+    # t = threshold(g)
     # show(t)
     #
     # s = stretch(img_org)
