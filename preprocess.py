@@ -4,12 +4,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy
 from scipy.stats import median_absolute_deviation as mad
-from skimage import exposure
+from skimage import exposure, img_as_float
 from skimage.color import rgb2gray
 from skimage.filters import try_all_threshold
 from skimage.io import imread
 
-match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
+# match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
 
 
 def mad_normalize(x):
@@ -27,19 +27,20 @@ def make_figure(im, dpi=96) -> plt.Figure:
     return fig
 
 
-def make_hist(img, n_bins=256):
+def make_hist(img, n_bins=1024):
     fig, ax = plt.subplots(tight_layout=True)
-    ax.hist(img.ravel(), bins=n_bins)
+    img = img[img > 0]
+    ax.hist(img, bins=n_bins, density=True)
 
     return fig
 
 
-def gamma(img, g=5):
+def gamma(img, g=10):
     return exposure.adjust_gamma(img, 1 / g)
 
 
 def clahe(img):
-    img_adapteq = exposure.equalize_adapthist(img, clip_limit=0.05)
+    img_adapteq = exposure.equalize_adapthist(img, clip_limit=0.5, kernel_size=10)
     return img_adapteq
 
 
@@ -49,8 +50,8 @@ def show(img):
 
 
 def stretch(img):
-    img[img > 1500] = 0
-    p2, p98 = numpy.percentile(img, (1, 99.5))
+    img = img_as_float(img)
+    p2, p98 = numpy.percentile(img, (10, 98))
     return exposure.rescale_intensity(img, in_range=(p2, p98))
 
 
@@ -62,8 +63,8 @@ def log_transform(img):
     return exposure.adjust_log(img)
 
 
-def match(img, reference=match_img):
-    return exposure.match_histograms(img, reference)
+# def match(img, reference=match_img):
+#     return exposure.match_histograms(img, reference)
 
 
 def threshold(img):
@@ -78,14 +79,16 @@ def threshold(img):
 
 if __name__ == "__main__":
     # data_pth = Path("RawData")
-    # image_fn = Path("R-233_5-8-6_000111.T000.D000.P000.H000.PLIF1.TIF")
+    # image_fn = Path("R-233_5-8-6_000114.T000.D000.P000.H000.PLIF1.TIF")
     # image_pth = data_pth / image_fn
+    # img_org = imread(image_pth)
+    # show(img_org)
     for image_fn in glob.glob("RawData/*.TIF"):
         img_org = imread(image_fn)
-        m = match(img_org)
-        show(m)
-    # g = gamma(img_org)
-    # show(g)
+        # s = stretch(img_org)
+        # show(s)
+        g = gamma(img_org)
+        show(g)
 
     # c = clahe(img_org)
     # show(c)

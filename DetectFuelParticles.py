@@ -20,7 +20,7 @@ from skimage.color import rgb2gray
 
 
 imagepath = "RawData/"
-image_path = "RawData/R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF"
+image_path = "processed_images/R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF"
 
 # In[3]:
 

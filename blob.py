@@ -67,7 +67,7 @@ def segmentation(image):
 
 
 def dog(image):
-    blobs_dog = blob_dog(image, max_sigma=10, threshold=0.1)
+    blobs_dog = blob_dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=.9)
     blobs_dog[:, 2] = blobs_dog[:, 2] * sqrt(2)
     return blobs_dog
 
@@ -78,7 +78,7 @@ def make_circles_fig(image, blobs, dpi=96):
     ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], yticks=[], xticks=[], frame_on=False)
     ax.imshow(image, cmap="gray")
     for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=2, fill=False)
+        c = plt.Circle((x, y), r, color="red", linewidth=.5, fill=False)
         ax.add_patch(c)
     return fig
 

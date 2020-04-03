@@ -6,13 +6,13 @@ from skimage.color import rgb2gray
 from skimage.io import imread
 
 from blob import dog, make_circles_fig
-from preprocess import gamma, match
+from preprocess import gamma
 
 
 def count_droplets(img):
-    m = match(img)
-    blobs = dog(m)
-    make_circles_fig(m, blobs).show()
+    img = gamma(img)
+    blobs = dog(img)
+    make_circles_fig(img, blobs).show()
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
     # image_fn = Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")
     # image_fp = data_dir / image_fn
 
-    for image_fn in glob.glob("RawData/*.TIF"):
+    for image_fn in glob.glob("processed_images/*.TIF"):
         img_org = imread(image_fn)
         img_gray = rgb2gray(img_org)
         start = time.time()
