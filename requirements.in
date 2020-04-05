@@ -1,6 +1,9 @@
-pip-tools
+pip - tools
 matplotlib
 pandas
-scikit-image
+scikit - image
 black
 numpy
+torch
+torchvision
+kornia

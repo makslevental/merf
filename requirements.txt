@@ -12,12 +12,13 @@ cycler==0.10.0            # via matplotlib
 decorator==4.4.2          # via networkx
 imageio==2.8.0            # via scikit-image
 kiwisolver==1.1.0         # via matplotlib
+kornia==0.2.0             # via -r requirements.in
 matplotlib==3.2.1         # via -r requirements.in, scikit-image
 networkx==2.4             # via scikit-image
-numpy==1.18.2             # via -r requirements.in, imageio, matplotlib, pandas, pywavelets, scipy
+numpy==1.18.2             # via -r requirements.in, imageio, matplotlib, pandas, pywavelets, scipy, torchvision
 pandas==1.0.3             # via -r requirements.in
 pathspec==0.7.0           # via black
-pillow==7.1.0             # via imageio, scikit-image
+pillow==7.1.0             # via imageio, kornia, scikit-image, torchvision
 pip-tools==4.5.1          # via -r requirements.in
 pyparsing==2.4.6          # via matplotlib
 python-dateutil==2.8.1    # via matplotlib, pandas
@@ -26,8 +27,10 @@ pywavelets==1.1.1         # via scikit-image
 regex==2020.2.20          # via black
 scikit-image==0.16.2      # via -r requirements.in
 scipy==1.4.1              # via scikit-image
-six==1.14.0               # via cycler, pip-tools, python-dateutil
+six==1.14.0               # via cycler, pip-tools, python-dateutil, torchvision
 toml==0.10.0              # via black
+torch==1.4.0              # via -r requirements.in, kornia, torchvision
+torchvision==0.5.0        # via -r requirements.in
 typed-ast==1.4.1          # via black
 
 # The following packages are considered to be unsafe in a requirements file:

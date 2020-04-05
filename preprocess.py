@@ -8,8 +8,13 @@ from skimage import exposure, img_as_float
 from skimage.color import rgb2gray
 from skimage.filters import try_all_threshold
 from skimage.io import imread
+from skimage.filters import sobel
 
 # match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
+
+
+def height(image):
+    return sobel(image)
 
 
 def mad_normalize(x):
@@ -49,10 +54,9 @@ def show(img):
     make_hist(img).show()
 
 
-def stretch(img):
-    img = img_as_float(img)
-    p2, p98 = numpy.percentile(img, (10, 98))
-    return exposure.rescale_intensity(img, in_range=(p2, p98))
+def stretch(img, saturation=0.35):
+    p2, p98 = numpy.percentile(img, (saturation / 100, 100 - (saturation / 100)))
+    return exposure.rescale_intensity(img, in_range=(p2, p98), out_range="image")
 
 
 def equalization(img):
@@ -78,17 +82,34 @@ def threshold(img):
 
 
 if __name__ == "__main__":
-    # data_pth = Path("RawData")
-    # image_fn = Path("R-233_5-8-6_000114.T000.D000.P000.H000.PLIF1.TIF")
-    # image_pth = data_pth / image_fn
-    # img_org = imread(image_pth)
-    # show(img_org)
-    for image_fn in glob.glob("RawData/*.TIF"):
-        img_org = imread(image_fn)
-        # s = stretch(img_org)
-        # show(s)
-        g = gamma(img_org)
-        show(g)
+    data_pth = Path("RawData")
+    image_fn = Path("R-233_5-8-6_000119.T000.D000.P000.H000.PLIF1.TIF")
+    image_pth = data_pth / image_fn
+    img_org = imread(image_pth)
+    show(img_org)
+    s = stretch(img_org)
+    show(s)
+    # g = gamma(img_org)
+    # make_figure(g).show()
+    # for i in range(80,100):
+    #     thresh = numpy.copy(g)
+    #     p2, p98 = numpy.percentile(thresh, (10, i))
+    #     thresh[thresh < p98] = 0
+    #     # thresh[thresh > p98] = 1
+    #     show(thresh)
+
+    # thresh = numpy.copy(g)
+    # p2, p98 = numpy.percentile(thresh, (10, 99))
+    # thresh[thresh < p98] = 0
+    # # thresh[thresh > p98] = 1
+    # show(thresh)
+
+    # for image_fn in glob.glob("RawData/*.TIF"):
+    #     img_org = imread(image_fn)
+    #     # s = stretch(img_org)
+    #     # show(s)
+    #     g = gamma(img_org)
+    #     show(g)
 
     # c = clahe(img_org)
     # show(c)

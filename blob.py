@@ -4,9 +4,11 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy
 import numpy as np
+import torch
+from kornia.feature import BlobHessian
 from skimage import color, morphology
 from skimage.draw import circle_perimeter
-from skimage.feature import canny, blob_dog
+from skimage.feature import canny, blob_dog, blob_log, blob_doh
 from skimage.filters import sobel
 from skimage.io import imread
 from skimage.transform import hough_circle, hough_circle_peaks
@@ -67,20 +69,41 @@ def segmentation(image):
 
 
 def dog(image):
-    blobs_dog = blob_dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=.9)
+    blobs_dog = blob_dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.9)
     blobs_dog[:, 2] = blobs_dog[:, 2] * sqrt(2)
     return blobs_dog
 
 
-def make_circles_fig(image, blobs, dpi=96):
+def log(image):
+    blobs_log = blob_log(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.9)
+    blobs_log[:, 2] = blobs_log[:, 2] * sqrt(2)
+    return blobs_log
+
+
+def doh(image):
+    blobs_doh = blob_doh(image, max_sigma=30, threshold=0.01)
+    return blobs_doh
+
+
+def make_circles_fig(image, blobs, title=None, dpi=96):
     px, py = image.shape
     fig = plt.figure(figsize=(py / numpy.float(dpi), px / numpy.float(dpi)))
-    ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], yticks=[], xticks=[], frame_on=False)
+    if title is None:
+        dims = [0.0, 0.0, 1.0, 1.0]
+    else:
+        dims = [0.0, 0.0, 1.0, 0.95]
+    ax = fig.add_axes(dims, yticks=[], xticks=[], frame_on=False)
     ax.imshow(image, cmap="gray")
+    ax.set_title(title, fontsize=50)
     for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=.5, fill=False)
+        c = plt.Circle((x, y), r, color="red", linewidth=1, fill=False)
         ax.add_patch(c)
     return fig
+
+
+def kornia_hessian(img):
+    blobs = BlobHessian()(img)
+    return blobs
 
 
 def main():
@@ -90,7 +113,6 @@ def main():
 
     img_org = imread(image_pth)
 
-    g = gamma(img_org)
     blobs = dog(g)
     make_circles_fig(g, blobs).show()
 
