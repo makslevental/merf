@@ -5,6 +5,7 @@ channels:
 dependencies:
   - numpy
   - scikit-image
+  - imagemagick<7.0.9
   - pyvips
   - pip
   - pip:
