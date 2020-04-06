@@ -4,8 +4,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy
 import numpy as np
-import torch
-from kornia.feature import BlobHessian
 from skimage import color, morphology
 from skimage.draw import circle_perimeter
 from skimage.feature import canny, blob_dog, blob_log, blob_doh

@@ -5,11 +5,10 @@ from pathlib import Path
 from skimage import img_as_float
 from skimage.color import rgb2gray
 from skimage.io import imread
-from torchvision.transforms import transforms
 
 from blob import dog, make_circles_fig, kornia_hessian, log, doh
 from enhance_contrast import ImageStats, stretch_composite_histogram
-from preprocess import gamma, make_figure
+from preprocess import gamma, make_figure, show
 
 DEBUG = False
 
@@ -25,6 +24,7 @@ def count_droplets_gamma(img):
 def count_droplets_dog(img):
     stats = ImageStats(img)
     s = stretch_composite_histogram(img, stats)
+    show(s)
     blobs = dog(s)
     if DEBUG:
         make_circles_fig(s, blobs, title=f"dog {len(blobs)}").show()
@@ -47,16 +47,6 @@ def count_droplets_doh(img):
     if DEBUG:
         make_circles_fig(s, blobs).show()
     return len(blobs)
-
-
-def count_droplets_kornia(img):
-    stats = ImageStats(img)
-    s = stretch_composite_histogram(img, stats)
-    s = img_as_float(s)
-    s = transforms.ToTensor()(s).unsqueeze(0)
-    blobs = kornia_hessian(s).squeeze().numpy()
-    make_figure(blobs).show()
-    # make_circles_fig(img, blobs).show()
 
 
 def main():
