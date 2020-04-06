@@ -6,5 +6,6 @@ dependencies:
   - numpy
   - scikit-image
   - pyvips
+  - pip
   - pip:
       - black
