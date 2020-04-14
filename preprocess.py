@@ -1,16 +1,17 @@
-import glob
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy
 from scipy.stats import median_absolute_deviation as mad
-from skimage import exposure, img_as_float
-from skimage.color import rgb2gray
-from skimage.filters import try_all_threshold
-from skimage.io import imread
+from skimage import exposure
 from skimage.filters import sobel
+from skimage.filters import try_all_threshold
+from skimage.filters.rank import majority
+from skimage.io import imread
+
 
 # match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
+from skimage.morphology import disk
 
 
 def height(image):
@@ -23,21 +24,34 @@ def mad_normalize(x):
     return (x - med) / x_mad
 
 
-def make_figure(im, dpi=96) -> plt.Figure:
+def make_figure(im, title=None, dpi=96, norm=None) -> plt.Figure:
     px, py = im.shape
     fig = plt.figure(figsize=(py / numpy.float(dpi), px / numpy.float(dpi)))
-    ax = fig.add_axes([0.0, 0.0, 1.0, 1.0], yticks=[], xticks=[], frame_on=False)
-    ax.imshow(im, cmap="gray")
+    if title is None:
+        dims = [0.0, 0.0, 1.0, 1.0]
+    else:
+        dims = [0.0, 0.0, 1.0, 0.95]
+    ax = fig.add_axes(dims, yticks=[], xticks=[], frame_on=False)
+    ax.imshow(im, cmap="gray", norm=norm)
+    ax.set_title(title, fontsize=50)
 
     return fig
 
 
-def make_hist(img, n_bins=1024):
+def make_hist(img, title=None, use_log_scale=False, n_bins=256):
     fig, ax = plt.subplots(tight_layout=True)
-    img = img[img > 0]
-    ax.hist(img, bins=n_bins, density=True)
-
+    ax.hist(img.ravel(), bins=n_bins)
     return fig
+
+
+# def make_hist(img, title=None, n_bins=256):
+#     fig, ax = plt.subplots()
+#     ax.hist(img, bins=n_bins)
+#     # ax.set_xscale("log")
+#     # ax.set_yscale("log")
+#     ax.set_title(title)
+#
+#     return fig
 
 
 def gamma(img, g=10):
@@ -49,9 +63,14 @@ def clahe(img):
     return img_adapteq
 
 
-def show(img):
-    make_figure(img).show()
-    make_hist(img).show()
+def show(img, title=None, use_log_hist=False):
+    make_figure(img, title).show()
+    make_hist(img, title, use_log_scale=use_log_hist).show()
+
+
+def major(img):
+    maj_img = majority(img, disk(5))
+    return maj_img
 
 
 def stretch(img, saturation=0.35):

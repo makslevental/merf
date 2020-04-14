@@ -67,7 +67,7 @@ def segmentation(image):
 
 
 def dog(image):
-    blobs_dog = blob_dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.9)
+    blobs_dog = blob_dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.5)
     blobs_dog[:, 2] = blobs_dog[:, 2] * sqrt(2)
     return blobs_dog
 
@@ -99,9 +99,8 @@ def make_circles_fig(image, blobs, title=None, dpi=96):
     return fig
 
 
-def kornia_hessian(img):
-    blobs = BlobHessian()(img)
-    return blobs
+def hough(img):
+    pass
 
 
 def main():

@@ -10,7 +10,7 @@ from blob import dog, make_circles_fig, kornia_hessian, log, doh
 from enhance_contrast import ImageStats, stretch_composite_histogram
 from preprocess import gamma, make_figure, show
 
-DEBUG = False
+DEBUG = True
 
 
 def count_droplets_gamma(img):
@@ -24,8 +24,7 @@ def count_droplets_gamma(img):
 def count_droplets_dog(img):
     stats = ImageStats(img)
     s = stretch_composite_histogram(img, stats)
-    show(s)
-    blobs = dog(s)
+    blobs = dog(img)
     if DEBUG:
         make_circles_fig(s, blobs, title=f"dog {len(blobs)}").show()
     return len(blobs)
@@ -43,7 +42,7 @@ def count_droplets_log(img):
 def count_droplets_doh(img):
     stats = ImageStats(img)
     s = stretch_composite_histogram(img, stats)
-    blobs = doh(s)
+    blobs = doh(img)
     if DEBUG:
         make_circles_fig(s, blobs).show()
     return len(blobs)

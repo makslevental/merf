@@ -1,3 +1,4 @@
+import glob
 import time
 
 import numpy as np
@@ -7,9 +8,11 @@ from skimage import img_as_float
 from skimage.feature import peak_local_max
 from skimage.feature.blob import _prune_blobs
 
+from blob import make_circles_fig
 from enhance_contrast import ImageStats, get_min_and_max
+
 # map vips formats to np dtypes
-from preprocess import show
+from preprocess import show, make_figure
 
 format_to_dtype = {
     "uchar": np.uint8,
@@ -68,7 +71,9 @@ def stretch_by_hand(image):
     image = np.clip(image, low, high)
 
     image = numpy2vips(image)
-    image = (image - low) * (stats.max / (high - low))
+
+    image = (image - low) / (high - low)
+    image = image * (stats.max - stats.min) + stats.min
     return image
 
 
@@ -76,31 +81,45 @@ def vips_img_as_numpy_float(image):
     return img_as_float(vips2numpy(image).astype(np.uint16))
 
 
-def dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.9, sigma_ratio=1.6, exclude_border=False):
+def dog(
+    image,
+    max_sigma=10,
+    min_sigma=1,
+    threshold=0.02,
+    overlap=0.9,
+    sigma_ratio=1.6,
+    exclude_border=False,
+):
     ndim = 2
 
     # k such that min_sigma*(sigma_ratio**k) > max_sigma
     k = int(np.mean(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1))
 
     # a geometric progression of standard deviations for gaussian kernels
-    sigma_list = np.array([min_sigma * (sigma_ratio ** i)
-                           for i in range(k + 1)])
+    sigma_list = np.array([min_sigma * (sigma_ratio ** i) for i in range(k + 1)])
 
     gaussian_images = [image.gaussblur(s) for s in sigma_list]
     gaussian_images = [vips_img_as_numpy_float(g) for g in gaussian_images]
+    for i, g in enumerate(gaussian_images):
+        make_figure(g).show()
 
     # computing difference between two successive Gaussian blurred images
     # multiplying with average standard deviation provides scale invariance
-    dog_images = [(gaussian_images[i] - gaussian_images[i + 1])
-                  * np.mean(sigma_list[i]) for i in range(k)]
+    dog_images = [
+        (gaussian_images[i] - gaussian_images[i + 1]) * np.mean(sigma_list[i])
+        for i in range(k)
+    ]
 
     image_cube = np.stack(dog_images, axis=-1)
 
     # local_maxima = get_local_maxima(image_cube, threshold)
-    local_maxima = peak_local_max(image_cube, threshold_abs=threshold,
-                                  footprint=np.ones((3,) * (ndim + 1)),
-                                  threshold_rel=0.0,
-                                  exclude_border=exclude_border)
+    local_maxima = peak_local_max(
+        image_cube,
+        threshold_abs=threshold,
+        footprint=np.ones((3,) * (ndim + 1)),
+        threshold_rel=0.0,
+        exclude_border=exclude_border,
+    )
     # Catch no peaks
     if local_maxima.size == 0:
         return np.empty((0, 3))
@@ -121,51 +140,14 @@ def dog(image, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.9, sigma_rat
 
 
 def main():
-    for _ in range(10):
+    for g in glob.glob("RawData/*.TIF"):
         start = time.time()
-        image = pyvips.Image.new_from_file("RawData/R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF",
-                                           access='random', memory=True)
+        image = pyvips.Image.new_from_file(g, access="random", memory=True,)
         stretched_img = stretch_by_hand(image)
-        dog(stretched_img)
+        make_circles_fig(vips2numpy(stretched_img), dog(stretched_img)).show()
         print(time.time() - start)
-
-
-def test_gauss_blur():
-    pillow_img = Image.open("RawData/R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF")
-    np_img = np.asarray(pillow_img)
-    stretched_img = stretch_by_hand(np_img)
-    show(stretched_img)
-    for i in range(1, 10):
-        img = stretched_img.gaussblur(i)
-        img.write_to_file(f'processed_images/blur{i}.jpg')
+        break
 
 
 if __name__ == "__main__":
     main()
-    # test_gauss_blur()
-
-# image = pyvips.Image.new_from_file(, access='sequential')
-# image *= [1, 2, 1]
-# mask = pyvips.Image.new_from_array([[-1, -1, -1],
-#                                     [-1, 16, -1],
-#                                     [-1, -1, -1]
-#                                    ], scale=8)
-# image = image.conv(mask, precision='integer')
-
-# dtype = image.dtype.type
-#
-# imin, imax = intensity_range(image, in_range)
-# omin, omax = intensity_range(image, out_range, clip_negative=(imin >= 0))
-#
-# image = np.clip(image, imin, imax)
-#
-# if imin != imax:
-#     image = (image - imin) / float(imax - imin)
-# return np.asarray(image * (omax - omin) + omin, dtype=dtype)
-
-# low = image.percent(saturation/200)
-# high = image.percent(saturation/200)
-# image = (image - low) * (255 / (high - low))
-# image.write_to_file("newfile.jpg")
-#
-# image.write_to_file('x.jpg')
