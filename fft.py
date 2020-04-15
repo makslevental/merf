@@ -82,7 +82,7 @@ def test_dog(img_orig, show_fig=True):
     ax3.imshow(log_img, cmap="gray")
     ax3.set_title("log scaled")
 
-    blobs = blob_dog(log_img, max_sigma=10, min_sigma=5, threshold=1, overlap=0.5)
+    blobs = blob_dog(log_img, max_sigma=10, min_sigma=5, threshold=1, overlap=0.8)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
     ax4.imshow(log_img, cmap="gray")
     ax4.set_title(f"log blobs {len(blobs)}")
@@ -94,7 +94,7 @@ def test_dog(img_orig, show_fig=True):
     ax5.imshow(s2, cmap="gray")
     ax5.set_title("constrast stretched")
 
-    blobs = blob_dog(s2, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.5)
+    blobs = blob_dog(s2, max_sigma=10, min_sigma=1, threshold=0.02, overlap=0.8)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
     ax6.imshow(s2, cmap="gray")
     ax6.set_title(f"contrast stretched blobs {len(blobs)}")
@@ -104,20 +104,20 @@ def test_dog(img_orig, show_fig=True):
     ax10.hist([r for _, _, r in blobs], bins=256, density=True)
     ax10.set_title("constrast stretched bubble distribution")
 
-    denoised = denoise(s2)
-    ax7.imshow(denoised, cmap="gray")
-    ax7.set_title("n2n denoised")
-    blobs = blob_dog(denoised, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.5)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    ax8.imshow(denoised, cmap="gray")
-    ax8.set_title(f"denoised blobs {len(blobs)}")
-    for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
-        ax8.add_patch(c)
-
-    print([r for _, _, r in blobs])
-    ax9.hist([r for _, _, r in blobs], bins=256, density=True)
-    ax9.set_title("denoised bubble distribution")
+    # denoised = denoise(s2)
+    # ax7.imshow(denoised, cmap="gray")
+    # ax7.set_title("n2n denoised")
+    # blobs = blob_dog(denoised, max_sigma=10, min_sigma=5, threshold=0.02, overlap=0.5)
+    # blobs[:, 2] = blobs[:, 2] * sqrt(2)
+    # ax8.imshow(denoised, cmap="gray")
+    # ax8.set_title(f"denoised blobs {len(blobs)}")
+    # for y, x, r in blobs:
+    #     c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
+    #     ax8.add_patch(c)
+    #
+    # print([r for _, _, r in blobs])
+    # ax9.hist([r for _, _, r in blobs], bins=256, density=True)
+    # ax9.set_title("denoised bubble distribution")
 
     if show_fig:
         fig.show()
