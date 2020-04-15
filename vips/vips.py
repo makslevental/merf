@@ -1,13 +1,9 @@
-import glob
-import time
-
 import numpy as np
 import pyvips
 from skimage import img_as_float
 from skimage.feature import peak_local_max
 from skimage.feature.blob import _prune_blobs
 
-from sk_image.blob import make_circles_fig
 from sk_image.enhance_contrast import ImageStats, get_min_and_max
 
 # map vips formats to np dtypes
@@ -80,34 +76,39 @@ def vips_img_as_numpy_float(image):
     return img_as_float(vips2numpy(image).astype(np.uint16))
 
 
+DEBUG = True
+
+
 def dog(
-    image,
-    max_sigma=10,
-    min_sigma=1,
-    threshold=0.02,
-    overlap=0.9,
-    sigma_ratio=1.6,
-    exclude_border=False,
+    image, threshold=0.001, overlap=0.8, min_sigma=1, max_sigma=10, sigma_ratio=1.6
 ):
     ndim = 2
 
     # k such that min_sigma*(sigma_ratio**k) > max_sigma
-    k = int(np.mean(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1))
+    k = int(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1)
 
     # a geometric progression of standard deviations for gaussian kernels
     sigma_list = np.array([min_sigma * (sigma_ratio ** i) for i in range(k + 1)])
+    print("sigmas: ", sigma_list)
 
     gaussian_images = [image.gaussblur(s) for s in sigma_list]
     gaussian_images = [vips_img_as_numpy_float(g) for g in gaussian_images]
-    for i, g in enumerate(gaussian_images):
-        make_figure(g).show()
+    if DEBUG:
+        for i, d in enumerate(gaussian_images):
+            make_figure(d).savefig(
+                f"/Users/maksim/dev_projects/merf/data/processed_images/debug/vips_gaussian_{i}.png"
+            )
 
     # computing difference between two successive Gaussian blurred images
     # multiplying with average standard deviation provides scale invariance
     dog_images = [
-        (gaussian_images[i] - gaussian_images[i + 1]) * np.mean(sigma_list[i])
-        for i in range(k)
+        (gaussian_images[i] - gaussian_images[i + 1]) * sigma_list[i] for i in range(k)
     ]
+    if DEBUG:
+        for i, d in enumerate(dog_images):
+            make_figure(d).savefig(
+                f"/Users/maksim/dev_projects/merf/data/processed_images/debug/vips_diff_{i}.png"
+            )
 
     image_cube = np.stack(dog_images, axis=-1)
 
@@ -117,8 +118,9 @@ def dog(
         threshold_abs=threshold,
         footprint=np.ones((3,) * (ndim + 1)),
         threshold_rel=0.0,
-        exclude_border=exclude_border,
+        exclude_border=False,
     )
+    print("num maxes: ", len(local_maxima))
     # Catch no peaks
     if local_maxima.size == 0:
         return np.empty((0, 3))
@@ -139,13 +141,19 @@ def dog(
 
 
 def main():
-    for g in glob.glob("data/RawData/*.TIF"):
-        start = time.time()
-        image = pyvips.Image.new_from_file(g, access="random", memory=True,)
-        stretched_img = stretch_by_hand(image)
-        make_circles_fig(vips2numpy(stretched_img), dog(stretched_img)).show()
-        print(time.time() - start)
-        break
+    image_pth = "/Users/maksim/dev_projects/merf/data/RawData/R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF"
+    image = pyvips.Image.new_from_file(image_pth, access="random", memory=True)
+    image = image.gaussblur(1)
+    stretched_img = stretch_by_hand(image)
+    dog(stretched_img)
+    # for g in glob.glob("../data/RawData/*.TIF"):
+    #     start = time.time()
+    #     image = pyvips.Image.new_from_file(g, access="random", memory=True, )
+    #     stretched_img = stretch_by_hand(image)
+    #     dog(stretched_img)
+    #     # make_circles_fig(vips2numpy(stretched_img), ).show()
+    #     print(time.time() - start)
+    #     break
 
 
 if __name__ == "__main__":

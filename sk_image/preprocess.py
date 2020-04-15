@@ -4,14 +4,10 @@ import matplotlib.pyplot as plt
 import numpy
 from scipy.stats import median_absolute_deviation as mad
 from skimage import exposure
-from skimage.filters import sobel
-from skimage.filters import try_all_threshold
+from skimage.filters import sobel, threshold_otsu
 from skimage.filters.rank import majority
 from skimage.io import imread
-
-
-# match_img = rgb2gray(imread("RawData" / Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.jpeg")))
-from skimage.morphology import disk
+from skimage.morphology import disk, opening, closing
 
 
 def height(image):
@@ -41,17 +37,10 @@ def make_figure(im, title=None, dpi=96, norm=None) -> plt.Figure:
 def make_hist(img, title=None, use_log_scale=False, n_bins=256):
     fig, ax = plt.subplots(tight_layout=True)
     ax.hist(img.ravel(), bins=n_bins)
+    ax.set_title(title)
+    if use_log_scale:
+        ax.set_yscale("log")
     return fig
-
-
-# def make_hist(img, title=None, n_bins=256):
-#     fig, ax = plt.subplots()
-#     ax.hist(img, bins=n_bins)
-#     # ax.set_xscale("log")
-#     # ax.set_yscale("log")
-#     ax.set_title(title)
-#
-#     return fig
 
 
 def gamma(img, g=10):
@@ -86,18 +75,15 @@ def log_transform(img):
     return exposure.adjust_log(img)
 
 
-# def match(img, reference=match_img):
-#     return exposure.match_histograms(img, reference)
-
-
-def threshold(img):
-    # thresh = threshold_otsu(img)
-    # binary = numpy.copy(img)
-    # binary[binary > thresh] = 1
-    # binary[binary < thresh] = 0
-    # return binary
-    fig, ax = try_all_threshold(img, figsize=(10, 8), verbose=False)
-    plt.show()
+def morphological_filter(img):
+    thresh = threshold_otsu(img)
+    print(thresh, len(img[img >= thresh].ravel()) / len(img.ravel()))
+    binary = img >= thresh
+    make_figure(binary).show()
+    o_binary = opening(binary)
+    make_figure(o_binary).show()
+    c_binary = closing(o_binary)
+    make_figure(c_binary).show()
 
 
 if __name__ == "__main__":
@@ -108,39 +94,3 @@ if __name__ == "__main__":
     show(img_org)
     s = stretch(img_org)
     show(s)
-    # g = gamma(img_org)
-    # make_figure(g).show()
-    # for i in range(80,100):
-    #     thresh = numpy.copy(g)
-    #     p2, p98 = numpy.percentile(thresh, (10, i))
-    #     thresh[thresh < p98] = 0
-    #     # thresh[thresh > p98] = 1
-    #     show(thresh)
-
-    # thresh = numpy.copy(g)
-    # p2, p98 = numpy.percentile(thresh, (10, 99))
-    # thresh[thresh < p98] = 0
-    # # thresh[thresh > p98] = 1
-    # show(thresh)
-
-    # for image_fn in glob.glob("RawData/*.TIF"):
-    #     img_org = imread(image_fn)
-    #     # s = stretch(img_org)
-    #     # show(s)
-    #     g = gamma(img_org)
-    #     show(g)
-
-    # c = clahe(img_org)
-    # show(c)
-    #
-    # t = threshold(g)
-    # show(t)
-    #
-    # s = stretch(img_org)
-    # show(s)
-    #
-    # e = equalization(img_org)
-    # show(e)
-    #
-    # l = log_transform(img_org)
-    # show(l)

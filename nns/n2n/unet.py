@@ -308,7 +308,6 @@ class UnetN2Nv2(nn.Module):
 
 
 if __name__ == "__main__":
-
     unet = UnetN2N(3, 3).to("cuda:2")
     print(unet)
     print(unet.model_size)

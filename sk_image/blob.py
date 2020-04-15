@@ -1,5 +1,4 @@
 from math import sqrt
-from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy
@@ -11,9 +10,10 @@ from skimage.filters import sobel, gaussian, threshold_otsu
 from skimage.io import imread
 from skimage.transform import hough_circle, hough_circle_peaks
 
+from simulation.simulate import create_circular_mask
+
 # Load picture and detect edges
 from sk_image.enhance_contrast import stretch_composite_histogram
-from simulation.simulate import create_circular_mask
 
 
 def circle(image):
@@ -95,7 +95,7 @@ def make_circles_fig(image, blobs, title=None, dpi=96):
     ax.imshow(image, cmap="gray")
     ax.set_title(title, fontsize=50)
     for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
+        c = plt.Circle((x, y), r, color="red", linewidth=1, fill=False)
         ax.add_patch(c)
     return fig
 
@@ -117,22 +117,19 @@ def area(img, blob):
 
 
 def main():
-    data_pth = Path("RawData/")
-    image_fn = Path("R-233_5-8-6_000110.T000.D000.P000.H000.PLIF1.TIF")
-    image_pth = data_pth / image_fn
+    image_pth = "/Users/maksim/dev_projects/merf/simulation/screenshot.png"
 
-    img_orig = imread(image_pth)
+    img_orig = imread(image_pth, as_gray=True)
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
 
     blobs = blob_dog(
-        s2, max_sigma=10, min_sigma=1, threshold=0.001, overlap=0.8, sigma_ratio=1.05
+        s2, max_sigma=20, min_sigma=1, threshold=0.001, overlap=0.8, sigma_ratio=1.6
     )
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
-
-    # make_circles_fig(s2, blobs).show()
-
-    # plt.hist([r for (_,_,r) in blobs], bins=256)
+    make_circles_fig(s2, blobs).show()
+    #
+    # plt.hist([r for (_, _, r) in blobs], bins=256)
     # plt.show()
     # areas = []
     # for blob in blobs:

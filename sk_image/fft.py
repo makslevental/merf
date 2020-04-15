@@ -12,18 +12,7 @@ from sklearn import decomposition
 
 from sk_image.enhance_contrast import stretch_composite_histogram, ImageStats
 
-# o_binary = opening(binary)
-# make_figure(o_binary).show()
-# c_binary = closing(o_binary)
-# make_figure(c_binary).show()
 from sk_image.preprocess import make_figure
-
-
-# show(s2)
-# thresh = threshold_otsu(s2)
-# print(thresh, len(s2[s2 >= thresh].ravel()) / len(s2.ravel()))
-# binary = s2 >= thresh
-# make_figure(binary).show()
 
 
 def draw_vector(v0, v1, ax=None):

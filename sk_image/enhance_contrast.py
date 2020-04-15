@@ -1,6 +1,7 @@
 import glob
 from dataclasses import dataclass
 from pathlib import Path
+
 import numpy as np
 from scipy import stats, ndimage
 from skimage import exposure
@@ -115,37 +116,6 @@ def test_multi():
         img_org = imread(image_pth)
         maj_img = major(img_org)
         make_figure(maj_img, dpi=300)
-        # show(img_org, f"{image_pth} orig")
-
-        # filtered_img = gaussian(img_org, sigma=1)
-        # show(filtered_img, f"{image_pth} filtered")
-        # print(np.log(np.sum((filtered_img-img_org)**2)))
-        # log_img = np.log(filtered_img)
-        # show(log_img, f"{image_pth} log")
-        #
-        # stats = ImageStats(log_img)
-        # log_img[log_img < stats.mode] = 0
-        # make_figure(log_img, f"{image_pth} log clipped", dpi=300).show()
-        #
-        # grads = gradient_map(filtered_img)
-        # # show(grads, f"{image_pth} grads", use_log_hist=True)
-        #
-        # filtered_grads = gaussian(grads, sigma=1)
-        # # show(filtered_grads, f"{image_pth} filtered grads", use_log_hist=True)
-        # filtered_grads_stats = ImageStats(filtered_grads)
-        # make_figure(filtered_grads, f"{filtered_grads_stats.std_dev}").show()
-
-        # im_fft = np.fft.fftshift(fftpack.fft2(img_org))[750:1450, 900:1700]
-        # plt.imshow(np.abs(im_fft), norm=LogNorm(vmin=5))
-        # plt.colorbar()
-        #
-        # plt.figure()
-        # plt.show()
-        # make_hist(np.abs(im_fft).ravel(), use_log_scale=True).show()
-        # plt.show()
-
-
-# Show the results
 
 
 if __name__ == "__main__":

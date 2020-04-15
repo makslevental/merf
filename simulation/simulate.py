@@ -1,12 +1,11 @@
+import numpy as np
+from glumpy import app, gloo, gl
+from glumpy.ext import png
 from skimage.filters import gaussian
 from skimage.io import imread
 from skimage.util import random_noise
 
 from sk_image.preprocess import make_figure
-
-import numpy as np
-from glumpy import app, gloo, gl
-from glumpy.ext import png
 
 
 def create_circular_mask(h, w, center=None, radius=None):
@@ -61,7 +60,7 @@ if __name__ == "__main__":
     window_size = 1024
 
     np.random.seed(1)
-    V = np.zeros(1000, [("center", np.float32, 3), ("radius", np.float32, 1)])
+    V = np.zeros(10, [("center", np.float32, 3), ("radius", np.float32, 1)])
     V["center"] = np.random.uniform(0, window_size, (len(V), 3))
     V["center"][:, 2] = np.random.uniform(0, 1, len(V))
     V["radius"] = np.random.uniform(5, 20, len(V))

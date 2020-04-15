@@ -6,8 +6,8 @@ from PIL import Image
 from skimage.filters import gaussian
 from skimage.io import imread
 
-from sk_image.enhance_contrast import stretch_composite_histogram
 from nns.n2n.unet import UnetN2N
+from sk_image.enhance_contrast import stretch_composite_histogram
 
 
 def pil_loader(path):
