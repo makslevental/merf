@@ -8,6 +8,7 @@ import numpy as np
 from glumpy import app, gloo, gl
 from glumpy.ext import png
 
+
 def create_circular_mask(h, w, center=None, radius=None):
     if center is None:  # use the middle of the image
         center = (int(w / 2), int(h / 2))
@@ -21,12 +22,7 @@ def create_circular_mask(h, w, center=None, radius=None):
     return mask
 
 
-
-
-
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     vertex = """
         uniform vec2 resolution;
         attribute vec3 center;
@@ -65,29 +61,32 @@ if __name__ == '__main__':
     window_size = 1024
 
     np.random.seed(1)
-    V = np.zeros(1000, [("center", np.float32, 3),
-                        ("radius", np.float32, 1)])
+    V = np.zeros(1000, [("center", np.float32, 3), ("radius", np.float32, 1)])
     V["center"] = np.random.uniform(0, window_size, (len(V), 3))
     V["center"][:, 2] = np.random.uniform(0, 1, len(V))
     V["radius"] = np.random.uniform(5, 20, len(V))
 
     window = app.Window(window_size, window_size)
 
-
     @window.event
     def on_resize(width, height):
         points["resolution"] = width, height
-
 
     @window.event
     def on_draw(dt):
         window.clear()
         gl.glEnable(gl.GL_DEPTH_TEST)
         points.draw(gl.GL_POINTS)
-        gl.glReadPixels(0, 0, window.width, window.height,
-                        gl.GL_RGB, gl.GL_UNSIGNED_BYTE, framebuffer)
-        png.from_array(framebuffer, 'RGB').save('screenshot.png')
-
+        gl.glReadPixels(
+            0,
+            0,
+            window.width,
+            window.height,
+            gl.GL_RGB,
+            gl.GL_UNSIGNED_BYTE,
+            framebuffer,
+        )
+        png.from_array(framebuffer, "RGB").save("screenshot.png")
 
     points = gloo.Program(vertex, fragment)
     points.bind(V.view(gloo.VertexBuffer))
@@ -102,9 +101,9 @@ if __name__ == '__main__':
     noisy = random_noise(noisy, mode="poisson")
 
     for (y, x, _z), r in V:
-        mask = create_circular_mask(window_size, window_size, (y,x), r*.9)
+        mask = create_circular_mask(window_size, window_size, (y, x), r * 0.9)
         noisy[mask] = 0
 
-    res = gaussian(noisy+im, sigma=1)
+    res = gaussian(noisy + im, sigma=1)
     make_figure(res).show()
     # make_figure(noisy+im).savefig("screenshot.png")

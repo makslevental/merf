@@ -95,7 +95,7 @@ def make_circles_fig(image, blobs, title=None, dpi=96):
     ax.imshow(image, cmap="gray")
     ax.set_title(title, fontsize=50)
     for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=0.5 , fill=False)
+        c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
         ax.add_patch(c)
     return fig
 
@@ -125,7 +125,9 @@ def main():
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
 
-    blobs = blob_dog(s2, max_sigma=10, min_sigma=1, threshold=0.001, overlap=0.8, sigma_ratio=1.05)
+    blobs = blob_dog(
+        s2, max_sigma=10, min_sigma=1, threshold=0.001, overlap=0.8, sigma_ratio=1.05
+    )
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
 
     # make_circles_fig(s2, blobs).show()
@@ -138,6 +140,7 @@ def main():
     #
     # plt.hist(areas, bins=256)
     # plt.show()
+
 
 if __name__ == "__main__":
     main()
