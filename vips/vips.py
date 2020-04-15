@@ -3,16 +3,15 @@ import time
 
 import numpy as np
 import pyvips
-from PIL import Image
 from skimage import img_as_float
 from skimage.feature import peak_local_max
 from skimage.feature.blob import _prune_blobs
 
-from blob import make_circles_fig
-from enhance_contrast import ImageStats, get_min_and_max
+from sk_image.blob import make_circles_fig
+from sk_image.enhance_contrast import ImageStats, get_min_and_max
 
 # map vips formats to np dtypes
-from preprocess import show, make_figure
+from sk_image.preprocess import make_figure
 
 format_to_dtype = {
     "uchar": np.uint8,
@@ -140,7 +139,7 @@ def dog(
 
 
 def main():
-    for g in glob.glob("RawData/*.TIF"):
+    for g in glob.glob("data/RawData/*.TIF"):
         start = time.time()
         image = pyvips.Image.new_from_file(g, access="random", memory=True,)
         stretched_img = stretch_by_hand(image)

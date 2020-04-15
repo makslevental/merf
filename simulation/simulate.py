@@ -2,7 +2,7 @@ from skimage.filters import gaussian
 from skimage.io import imread
 from skimage.util import random_noise
 
-from preprocess import make_figure
+from sk_image.preprocess import make_figure
 
 import numpy as np
 from glumpy import app, gloo, gl

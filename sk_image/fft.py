@@ -10,14 +10,13 @@ from skimage.filters import gaussian
 from skimage.io import imread
 from sklearn import decomposition
 
-from enhance_contrast import stretch_composite_histogram, ImageStats
+from sk_image.enhance_contrast import stretch_composite_histogram, ImageStats
 
 # o_binary = opening(binary)
 # make_figure(o_binary).show()
 # c_binary = closing(o_binary)
 # make_figure(c_binary).show()
-from n2n.main import denoise
-from preprocess import make_figure
+from sk_image.preprocess import make_figure
 
 
 # show(s2)
@@ -139,7 +138,7 @@ def threshold(img_orig):
 
 
 if __name__ == "__main__":
-    for img_fp in glob.glob("RawData/4-10-8/*.TIF"):
+    for img_fp in glob.glob("data/RawData/4-10-8/*.TIF"):
         img_orig = imread(img_fp)
         test_dog(img_orig)
         # threshold(img_orig)

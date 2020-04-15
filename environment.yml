@@ -8,6 +8,11 @@ dependencies:
   - imagemagick<7.0.9
   - pyvips
   - pixman=0.36.0
+  - glumpy
+  - pytorch
+  - torchvision
+  - jupyter
   - pip
   - pip:
       - black
+      - jupyter_contrib_nbextensions

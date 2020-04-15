@@ -1,9 +1,0 @@
-pip - tools
-matplotlib
-pandas
-scikit - image
-black
-numpy
-torch
-torchvision
-kornia

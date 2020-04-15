@@ -6,8 +6,8 @@ from PIL import Image
 from skimage.filters import gaussian
 from skimage.io import imread
 
-from enhance_contrast import stretch_composite_histogram
-from n2n.unet import UnetN2N
+from sk_image.enhance_contrast import stretch_composite_histogram
+from nns.n2n.unet import UnetN2N
 
 
 def pil_loader(path):
@@ -92,7 +92,7 @@ def denoise(img_orig):
 
 
 if __name__ == "__main__":
-    for img_fp in glob.glob("../RawData/4-10-8/*.TIF"):
+    for img_fp in glob.glob("../data/RawData/4-10-8/*.TIF"):
         img_orig = imread(img_fp)
         denoise(img_orig)
         # threshold(img_orig)

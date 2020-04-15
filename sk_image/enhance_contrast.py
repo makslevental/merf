@@ -1,16 +1,13 @@
 import glob
 from dataclasses import dataclass
 from pathlib import Path
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats, ndimage
 from skimage import exposure
 from skimage.filters import gaussian
 from skimage.io import imread
-from scipy import fftpack
 
-from matplotlib.colors import LogNorm
-from preprocess import make_figure, show, make_hist, major
+from sk_image.preprocess import make_figure, show, major
 
 AUTO_THRESHOLD = 5000
 
@@ -114,7 +111,7 @@ def gradient_map(img):
 
 
 def test_multi():
-    for image_pth in glob.glob("RawData/*.TIF"):
+    for image_pth in glob.glob("data/RawData/*.TIF"):
         img_org = imread(image_pth)
         maj_img = major(img_org)
         make_figure(maj_img, dpi=300)

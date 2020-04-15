@@ -12,8 +12,8 @@ from skimage.io import imread
 from skimage.transform import hough_circle, hough_circle_peaks
 
 # Load picture and detect edges
-from enhance_contrast import stretch_composite_histogram
-from simulate import create_circular_mask
+from sk_image.enhance_contrast import stretch_composite_histogram
+from simulation.simulate import create_circular_mask
 
 
 def circle(image):
