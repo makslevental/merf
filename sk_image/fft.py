@@ -81,16 +81,16 @@ def test_dog(img_orig, show_fig=True):
     s2 = stretch_composite_histogram(filtered_img)
     ax5.imshow(s2, cmap="gray")
     ax5.set_title("constrast stretched")
-
-    blobs = blob_dog(s2, max_sigma=10, min_sigma=1, threshold=0.02, overlap=0.8)
-    blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    ax6.imshow(s2, cmap="gray")
-    ax6.set_title(f"contrast stretched blobs {len(blobs)}")
-    for y, x, r in blobs:
-        c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
-        ax6.add_patch(c)
-    ax10.hist([r for _, _, r in blobs], bins=256, density=True)
-    ax10.set_title("constrast stretched bubble distribution")
+    #
+    # blobs = blob_dog(s2, max_sigma=10, min_sigma=1, threshold=0.02, overlap=0.8)
+    # blobs[:, 2] = blobs[:, 2] * sqrt(2)
+    # ax6.imshow(s2, cmap="gray")
+    # ax6.set_title(f"contrast stretched blobs {len(blobs)}")
+    # for y, x, r in blobs:
+    #     c = plt.Circle((x, y), r, color="red", linewidth=0.5, fill=False)
+    #     ax6.add_patch(c)
+    # ax10.hist([r for _, _, r in blobs], bins=256, density=True)
+    # ax10.set_title("constrast stretched bubble distribution")
 
     # denoised = denoise(s2)
     # ax7.imshow(denoised, cmap="gray")
@@ -111,7 +111,7 @@ def test_dog(img_orig, show_fig=True):
         fig.show()
     else:
         fig.savefig(f"processed_images/{img_fp}.png", dpi=96)
-    plt.close(fig)
+    # plt.close(fig)
 
 
 def threshold(img_orig):
@@ -127,8 +127,9 @@ def threshold(img_orig):
 
 
 if __name__ == "__main__":
-    for img_fp in glob.glob("data/RawData/4-10-8/*.TIF"):
+    for img_fp in glob.glob("/Users/maksim/dev_projects/merf/data/RawData/4-10-8/*.TIF"):
         img_orig = imread(img_fp)
-        test_dog(img_orig)
+        stats = ImageStats(img_orig)
+        test_dog(img_orig-stats.mean)
         # threshold(img_orig)
         break
