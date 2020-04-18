@@ -17,11 +17,11 @@ min_distance = 20
 exclude_border = True
 footprint = None
 size = 2 * min_distance + 1
-m = nn.MaxPool2d(size, stride=1)
+m = nn.MaxPool2d(size, stride=1, padding=min_distance)
 
 t_im = torch.from_numpy(im).unsqueeze(0)
-padded_t_im = nn.ConstantPad2d(min_distance, 0)(t_im)
-image_max_t = m(padded_t_im).detach().numpy()[0]
+# padded_t_im = nn.ConstantPad2d(min_distance, 0)(t_im)
+image_max_t = m(t_im).detach().numpy()[0]
 image_max = ndi.maximum_filter(im, size=size, mode='constant')
 
 print((im-t_im[0].detach().numpy()).any())
