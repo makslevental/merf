@@ -160,26 +160,30 @@ class DifferenceOfGaussians(nn.Module):
         # sigma that produced the maximum intensity value, into the sigma
         sigmas_of_peaks = self.sigma_list[local_maxima[:, 0]]
         # Remove sigma index and replace with sigmas
-        lm = local_maxima.float()
-        lm[:, 0] = sigmas_of_peaks
-
-        # flip to abide by _prune_blobs expectations
-        lm = lm.flip(1)
-        if self.prune:
-            blobs = _prune_blobs(lm, self.overlap, sigma_dim=1)
-        else:
-            blobs = lm
-        blobs[:, [0, 1]] = blobs[:, [1, 0]]
-        return blobs
+        local_maxima = local_maxima.float()
+        local_maxima[:, 0] = sigmas_of_peaks
+        return local_maxima
 
 
-def torch_dog(img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2):
+def torch_dog(
+    img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2, prune=True, overlap=0.5
+):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
             min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=sigma_ratio
         )
         dog.eval()
-        blobs = dog(img_tensor)
+        local_maxima = dog(img_tensor)
+
+    # flip to abide by _prune_blobs expectations
+    local_maxima = local_maxima.flip(1)
+    if prune:
+        blobs = _prune_blobs(local_maxima, overlap, sigma_dim=1)
+    else:
+        blobs = local_maxima
+
+    blobs[:, [0, 1]] = blobs[:, [1, 0]]
+    blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
     return blobs
 
 
@@ -205,7 +209,6 @@ def torch_dog_img_test():
     make_figure(s2).show()
     t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0)
     blobs = torch_dog(t_image)
-    blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
     print("blobs: ", len(blobs))
     make_circles_fig(s2, blobs).show()
 
