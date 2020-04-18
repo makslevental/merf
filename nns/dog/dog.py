@@ -47,9 +47,9 @@ class GaussianSmoothing(nn.Module):
         for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
             mean = (size - 1) / 2
             kernel *= (
-                    1
-                    / (std * math.sqrt(2 * math.pi))
-                    * torch.exp(-(((mgrid - mean) / (2 * std)) ** 2))
+                1
+                / (std * math.sqrt(2 * math.pi))
+                * torch.exp(-(((mgrid - mean) / (2 * std)) ** 2))
             )
 
         # Make sure sum of values in gaussian kernel equals 1.
@@ -77,11 +77,26 @@ class GaussianSmoothing(nn.Module):
 
 
 class DifferenceOfGaussians(nn.Module):
-    def __init__(self, *, max_sigma=10, min_sigma=1, sigma_ratio=1.2, truncate=4.0):
+    def __init__(
+        self,
+        *,
+        max_sigma=10,
+        min_sigma=1,
+        sigma_ratio=1.2,
+        truncate=4.0,
+        footprint=3,
+        threshold=0.001,
+        overlap=0.5,
+        prune_overlapping=True,
+        exclude_border=True
+    ):
         super().__init__()
-        #     truncate : float, optional
-        #         Truncate the filter at this many standard deviations.
-        #         Default is 4.0.
+
+        self.footprint = footprint
+        self.threshold = threshold
+        self.overlap = overlap
+        self.prune = prune_overlapping
+        self.exclude_border = exclude_border
 
         # k such that min_sigma*(sigma_ratio**k) > max_sigma
         self.k = int(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1)
@@ -89,7 +104,6 @@ class DifferenceOfGaussians(nn.Module):
         self.sigma_list = torch.FloatTensor(
             [min_sigma * (sigma_ratio ** i) for i in range(self.k + 1)]
         )
-        # print("sigmas: ", self.sigma_list)
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(self.sigma_list) + 0.5)
         self.gaussian_pyramid = nn.Conv2d(
@@ -110,6 +124,11 @@ class DifferenceOfGaussians(nn.Module):
         for p in self.gaussian_pyramid.parameters():
             p.requires_grad = False
 
+        self.padding = (self.footprint - 1) // 2
+        self.max_pool = nn.MaxPool3d(
+            kernel_size=self.footprint, padding=self.padding, stride=1
+        )
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         padded_input = nn.ConstantPad2d(self.max_radius, 0)(input)
         gaussian_images = self.gaussian_pyramid(padded_input)
@@ -118,69 +137,49 @@ class DifferenceOfGaussians(nn.Module):
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
             self.sigma_list[: self.k][np.newaxis, np.newaxis].T
         )
-        return dog_images
+        image_max = self.max_pool(dog_images.unsqueeze(0))
+        mask = dog_images == image_max.squeeze(0)
+        mask &= dog_images > self.threshold
+
+        if self.exclude_border:
+            for i in range(mask.ndim):
+                # mask[(slice(None),) * 0 + (slice(None, padding),)] is the same as
+                # mask[0:padding,:,:]
+                # mask[(slice(None),) * 1 + (slice(None, padding),)] is the same as
+                # mask[:,0:padding,:]
+                # ...
+                mask[(slice(None),) * i + (slice(None, self.padding),)] = False
+                mask[(slice(None),) * i + (slice(-self.padding, None),)] = False
+
+        local_maxima = mask.nonzero()
+
+        if local_maxima.size == 0:
+            return torch.empty((0, 3))
+
+        # translate first column of lm, which contains the index of the
+        # sigma that produced the maximum intensity value, into the sigma
+        sigmas_of_peaks = self.sigma_list[local_maxima[:, 0]]
+        # Remove sigma index and replace with sigmas
+        lm = local_maxima.float()
+        lm[:, 0] = sigmas_of_peaks
+
+        # flip to abide by _prune_blobs expectations
+        lm = lm.flip(1)
+        if self.prune:
+            blobs = _prune_blobs(lm, self.overlap, sigma_dim=1)
+        else:
+            blobs = lm
+        blobs[:, [0, 1]] = blobs[:, [1, 0]]
+        return blobs
 
 
-def torch_local_max(image: torch.Tensor, *, threshold=0.001, size=3, exclude_border=True):
-    padding = (size - 1) // 2
-    if image.ndim == 2:
-        m = nn.MaxPool2d(kernel_size=size, padding=padding, stride=1)
-    elif image.ndim == 3:
-        m = nn.MaxPool3d(kernel_size=size, padding=padding, stride=1)
-    else:
-        raise Exception(f"higher dimensions {image.ndim} aren't supported")
-
-    image_max = m(image.unsqueeze(0))
-
-    mask = image == image_max.squeeze(0)
-    mask &= image > threshold
-
-    if exclude_border:
-        for i in range(mask.ndim):
-            # mask[(slice(None),) * 0 + (slice(None, padding),)] is the same as
-            # mask[0:padding,:,:]
-            # mask[(slice(None),) * 1 + (slice(None, padding),)] is the same as
-            # mask[:,0:padding,:]
-            # ...
-            mask[(slice(None),) * i + (slice(None, padding),)] = False
-            mask[(slice(None),) * i + (slice(-padding, None),)] = False
-
-    coord = mask.nonzero()
-    return coord
-
-
-def torch_dog(
-        img_tensor, threshold=0.001, prune_overlapping=True, overlap=0.8, min_sigma=1, max_sigma=30, sigma_ratio=1.2
-):
-    # max_sigma = 10, min_sigma = 1, threshold = 0.02, overlap = 0.8
+def torch_dog(img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
             min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=sigma_ratio
         )
         dog.eval()
-        dogs = dog(img_tensor)
-        local_maxima = torch_local_max(dogs, threshold=threshold, size=3)
-
-    if local_maxima.size == 0:
-        return np.empty((0, 3))
-
-    # translate first column of lm, which contains the index of the
-    # sigma that produced the maximum intensity value, into the sigma
-    sigmas_of_peaks = dog.sigma_list[local_maxima[:, 0]]
-
-    # Remove sigma index and replace with sigmas
-    lm = local_maxima.float()
-    lm[:, 0] = sigmas_of_peaks
-
-    # flip to abide by _prune_blobs expectations
-    lm = lm.flip(1)
-    if prune_overlapping:
-        blobs = _prune_blobs(lm, overlap, sigma_dim=1)
-    else:
-        blobs = lm
-    print(blobs)
-    blobs[:, [0, 1]] = blobs[:, [1, 0]]
-    print(blobs)
+        blobs = dog(img_tensor)
     return blobs
 
 
@@ -205,7 +204,7 @@ def torch_dog_img_test():
     s2 = stretch_composite_histogram(filtered_img)
     make_figure(s2).show()
     t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0)
-    blobs = torch_dog(t_image, prune_overlapping=False)
+    blobs = torch_dog(t_image)
     blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
     print("blobs: ", len(blobs))
     make_circles_fig(s2, blobs).show()
