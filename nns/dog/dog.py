@@ -166,7 +166,7 @@ class DifferenceOfGaussians(nn.Module):
 
 
 def torch_dog(
-    img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2, prune=True, overlap=0.5
+    img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2, prune=True, overlap=1
 ):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
@@ -176,7 +176,7 @@ def torch_dog(
         local_maxima = dog(img_tensor)
 
     # flip to abide by _prune_blobs expectations
-    local_maxima = local_maxima.flip(1)
+    local_maxima = local_maxima.flip(1).detach().numpy()
     if prune:
         blobs = _prune_blobs(local_maxima, overlap, sigma_dim=1)
     else:
@@ -201,14 +201,12 @@ def torch_dog_img_test():
     image_pth = "/Users/maksim/dev_projects/merf/simulation/screenshot.png"
 
     img_orig = imread(image_pth, as_gray=True)
-    make_figure(img_orig).show()
     # values have to be float and also between 0,1 for peak finding to work
     img_orig = img_as_float(img_orig)
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
-    make_figure(s2).show()
     t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0)
-    blobs = torch_dog(t_image)
+    blobs = torch_dog(t_image, prune=True)
     print("blobs: ", len(blobs))
     make_circles_fig(s2, blobs).show()
 
