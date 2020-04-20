@@ -47,7 +47,6 @@ if __name__ == "__main__":
 
           gl_FragDepth = 0.5*v_center.z + 0.5*(1.0 - z);
 
-
           vec3 color = vec3(1.0, 1.0, 1.0);
           vec3 normal = normalize(vec3(p.xy, z));
           vec3 direction = normalize(vec3(0.0, 0.0, 1.0));
@@ -57,14 +56,14 @@ if __name__ == "__main__":
        } 
     """
 
-    window_size = 1024
+    window_size = 1000
 
     np.random.seed(1)
-    V = np.zeros(300, [("center", np.float32, 3), ("radius", np.float32, 1)])
+    V = np.zeros(1000, [("center", np.float32, 3), ("radius", np.float32, 1)])
     V["center"] = np.random.uniform(0, window_size, (len(V), 3))
-    V["center"][:, 2] = np.random.uniform(0, 1, len(V))
+    V["center"][:, 2] = np.random.uniform(0, 0, len(V))
     V["radius"] = np.random.uniform(5, 20, len(V))
-
+    app.use("glfw")
     window = app.Window(window_size, window_size)
 
     @window.event

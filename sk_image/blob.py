@@ -1,3 +1,4 @@
+import time
 from math import sqrt
 
 import matplotlib.pyplot as plt
@@ -10,7 +11,7 @@ from skimage.filters import sobel, gaussian, threshold_otsu
 from skimage.io import imread
 from skimage.transform import hough_circle, hough_circle_peaks
 
-from simulation.simulate import create_circular_mask
+# from simulation.simulate import create_circular_mask
 
 # Load picture and detect edges
 from sk_image.enhance_contrast import stretch_composite_histogram
@@ -117,17 +118,19 @@ def area(img, blob):
 
 
 def main():
-    image_pth = "/Users/maksim/dev_projects/merf/simulation/screenshot.png"
-
+    image_pth = "/home/maksim/dev_projects/merf/merf/simulation/screenshot.png"
     img_orig = imread(image_pth, as_gray=True)
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
 
+    start = time.monotonic()
     blobs = blob_dog(
-        s2, max_sigma=20, min_sigma=1, threshold=0.001, overlap=0.8, sigma_ratio=1.6
+        s2, max_sigma=100, min_sigma=1, threshold=0.001, overlap=1, sigma_ratio=1.1
     )
+    print("dog time ", time.monotonic() - start)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)
-    make_circles_fig(s2, blobs).show()
+    print(len(blobs))
+    # make_circles_fig(s2, blobs).show()
     #
     # plt.hist([r for (_, _, r) in blobs], bins=256)
     # plt.show()

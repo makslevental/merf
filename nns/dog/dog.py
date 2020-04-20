@@ -1,5 +1,7 @@
 import math
 import numbers
+import glob
+import time
 
 import numpy as np
 import torch
@@ -10,7 +12,7 @@ from skimage.io import imread
 from torch import nn
 from torch.nn import functional as F
 
-from sk_image.blob import make_circles_fig
+#from sk_image.blob import make_circles_fig
 from sk_image.enhance_contrast import stretch_composite_histogram
 from sk_image.preprocess import make_figure
 
@@ -101,9 +103,10 @@ class DifferenceOfGaussians(nn.Module):
         # k such that min_sigma*(sigma_ratio**k) > max_sigma
         self.k = int(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1)
         # a geometric progression of standard deviations for gaussian kernels
-        self.sigma_list = torch.FloatTensor(
-            [min_sigma * (sigma_ratio ** i) for i in range(self.k + 1)]
-        )
+        self.sigma_list = nn.Parameter(torch.from_numpy(
+            np.asarray([min_sigma * (sigma_ratio ** i) for i in range(self.k + 1)])
+        ))
+        print(len(self.sigma_list))
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(self.sigma_list) + 0.5)
         self.gaussian_pyramid = nn.Conv2d(
@@ -130,17 +133,37 @@ class DifferenceOfGaussians(nn.Module):
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        start = time.monotonic()
         padded_input = nn.ConstantPad2d(self.max_radius, 0)(input)
+        torch.cuda.synchronize()
+        print("pad time ", time.monotonic()-start)
+
+        start = time.monotonic()
         gaussian_images = self.gaussian_pyramid(padded_input)
+        torch.cuda.synchronize()
+        print("gauss pyramid time ", time.monotonic()-start)
         # computing difference between two successive Gaussian blurred images
         # multiplying with average standard deviation provides scale invariance
+
+        start = time.monotonic()
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
-            self.sigma_list[: self.k][np.newaxis, np.newaxis].T
+            self.sigma_list[: self.k].unsqueeze(0).unsqueeze(0).T
         )
+        torch.cuda.synchronize()
+        print("differences time", time.monotonic()-start)
+
+        start = time.monotonic()
         image_max = self.max_pool(dog_images.unsqueeze(0))
+        torch.cuda.synchronize()
+        print("maxpool time", time.monotonic()-start)
+
+        start = time.monotonic()
         mask = dog_images == image_max.squeeze(0)
         mask &= dog_images > self.threshold
+        torch.cuda.synchronize()
+        print("mask time", time.monotonic()-start)
 
+        start = time.monotonic()
         if self.exclude_border:
             for i in range(mask.ndim):
                 # mask[(slice(None),) * 0 + (slice(None, padding),)] is the same as
@@ -150,8 +173,16 @@ class DifferenceOfGaussians(nn.Module):
                 # ...
                 mask[(slice(None),) * i + (slice(None, self.padding),)] = False
                 mask[(slice(None),) * i + (slice(-self.padding, None),)] = False
+        torch.cuda.synchronize()
+        print("exclude border time", time.monotonic()-start)
 
-        local_maxima = mask.nonzero()
+        #start = time.monotonic()
+        #mask = mask.cpu().nonzero()
+        #print("copy to memory time", time.monotonic()-start)
+        start = time.monotonic()
+        local_maxima = np.nonzero(mask)
+        torch.cuda.synchronize()
+        print("nonzer time", time.monotonic()-start)
 
         if local_maxima.size == 0:
             return torch.empty((0, 3))
@@ -166,17 +197,22 @@ class DifferenceOfGaussians(nn.Module):
 
 
 def torch_dog(
-    img_tensor, min_sigma=1, max_sigma=30, sigma_ratio=1.2, prune=True, overlap=1
+    img_tensor, min_sigma=1, max_sigma=10, sigma_ratio=1.1, prune=True, overlap=1
 ):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
-            min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=sigma_ratio
-        )
+            min_sigma=min_sigma, max_sigma=max_sigma, sigma_ratio=sigma_ratio, exclude_border=False
+        ).to("cuda")
         dog.eval()
+        print(dog)
+        start = time.monotonic()
         local_maxima = dog(img_tensor)
-
+        print("small dog time ", time.monotonic()-start)
     # flip to abide by _prune_blobs expectations
-    local_maxima = local_maxima.flip(1).detach().numpy()
+
+    start = time.monotonic()
+    local_maxima = local_maxima.flip(1).cpu().numpy()
+    print("gpu back shuffle time", time.monotonic()-start)
     if prune:
         blobs = _prune_blobs(local_maxima, overlap, sigma_dim=1)
     else:
@@ -198,19 +234,36 @@ def torch_dog_test():
 
 
 def torch_dog_img_test():
-    image_pth = "/Users/maksim/dev_projects/merf/simulation/screenshot.png"
-
+    image_pth = "/home/maksim/dev_projects/merf/merf/simulation/screenshot.png"
+    start = time.monotonic()
     img_orig = imread(image_pth, as_gray=True)
     # values have to be float and also between 0,1 for peak finding to work
     img_orig = img_as_float(img_orig)
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
-    t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0)
-    blobs = torch_dog(t_image, prune=True)
+    start = time.monotonic()
+    t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0).to("cuda")
+    print("gpu shuffle time ", time.monotonic()-start)
+    blobs = torch_dog(t_image, prune=False)
+    print("whole dog time ", time.monotonic()-start)
     print("blobs: ", len(blobs))
-    make_circles_fig(s2, blobs).show()
+    # make_circles_fig(s2, blobs).show()
+
+def main():
+    for image_pth in glob.glob("/home/maksim/dev_projects/merf/merf/RawData/*.TIF"):
+        start = time.monotonic()
+        img_orig = imread(image_pth, as_gray=True)
+        # values have to be float and also between 0,1 for peak finding to work
+        img_orig = img_as_float(img_orig)
+        filtered_img = gaussian(img_orig, sigma=1)
+        s2 = stretch_composite_histogram(filtered_img)
+        t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0).to("cuda")
+        blobs = torch_dog(t_image, prune=True)
+        print(time.monotonic()-start)
+        print("blobs: ", len(blobs))
 
 
 if __name__ == "__main__":
     # torch_dog_test()
     torch_dog_img_test()
+    # main()
