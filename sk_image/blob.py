@@ -1,5 +1,7 @@
+import os
 import time
 from math import sqrt
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy
@@ -118,14 +120,16 @@ def area(img, blob):
 
 
 def main():
-    image_pth = "/home/maksim/dev_projects/merf/merf/simulation/screenshot.png"
+    start = time.monotonic()
+    image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+        "../simulation/screenshot.png"
+    )
     img_orig = imread(image_pth, as_gray=True)
     filtered_img = gaussian(img_orig, sigma=1)
     s2 = stretch_composite_histogram(filtered_img)
 
-    start = time.monotonic()
     blobs = blob_dog(
-        s2, max_sigma=100, min_sigma=1, threshold=0.001, overlap=1, sigma_ratio=1.1
+        s2, max_sigma=10, min_sigma=1, threshold=0.001, overlap=0.5, sigma_ratio=1.01
     )
     print("dog time ", time.monotonic() - start)
     blobs[:, 2] = blobs[:, 2] * sqrt(2)

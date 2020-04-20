@@ -59,7 +59,7 @@ if __name__ == "__main__":
     window_size = 1000
 
     np.random.seed(1)
-    V = np.zeros(1000, [("center", np.float32, 3), ("radius", np.float32, 1)])
+    V = np.zeros(300, [("center", np.float32, 3), ("radius", np.float32, 1)])
     V["center"] = np.random.uniform(0, window_size, (len(V), 3))
     V["center"][:, 2] = np.random.uniform(0, 0, len(V))
     V["radius"] = np.random.uniform(5, 20, len(V))
