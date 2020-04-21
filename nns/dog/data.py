@@ -25,7 +25,6 @@ class Trivial(Dataset):
         return self.repeats
 
     def __getitem__(self, _idx):
-        print(_idx)
         # if torch.is_tensor(idx):
         #     idx = idx.tolist()
 

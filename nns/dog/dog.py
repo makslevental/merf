@@ -24,8 +24,17 @@ DATA_DIR = os.environ.get("FSP_DATA_DIR")
 if DATA_DIR is None:
     raise Exception("need to specify env var FSP_DATA_DIR")
 DATA_DIR = Path(abspath(DATA_DIR))
+NUM_GPUS = torch.cuda.device_count()
+print(f"num gpus: {NUM_GPUS}")
 
-DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 
 def torch_gaussian_kernel(width=21, sigma=3, dim=2):
@@ -70,7 +79,7 @@ class DifferenceOfGaussians(nn.Module):
         self.prune = prune
         self.overlap = overlap
 
-        sigma_ratio = 1 + np.log(max_sigma/min_sigma) / sigma_bins
+        sigma_ratio = 1 + np.log(max_sigma / min_sigma) / sigma_bins
         # a geometric progression of standard deviations for gaussian kernels
         self.sigma_list = np.asarray(
             [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
@@ -80,51 +89,62 @@ class DifferenceOfGaussians(nn.Module):
         print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(sigmas) + 0.5)
-        self.gaussian_pyramid = nn.Conv2d(
-            1,
-            sigma_bins + 1,
-            2 * self.max_radius + 1,
-            bias=False,
-            padding=self.max_radius,
-            padding_mode="zeros",
-        )
-        for i, s in enumerate(sigmas):
-            radius = int(truncate * s + 0.5)
-            kernel = torch_gaussian_kernel(width=2 * radius + 1, sigma=s.item())
-            pad_size = self.max_radius - radius
-            if pad_size > 0:
-                padded_kernel = nn.ConstantPad2d(pad_size, 0)(kernel)
-            else:
-                padded_kernel = kernel
-            self.gaussian_pyramid.weight.data[i].copy_(padded_kernel)
-
         self.padding = (self.footprint - 1) // 2
         if not isinstance(self.footprint, int):
             self.footprint = tuple(self.footprint)
             self.padding = tuple(self.padding)
 
-        self.max_pool = nn.MaxPool3d(
-            kernel_size=self.footprint, padding=self.padding, stride=1
-        )
+        self.gaussian_pyramids = []
+        for i, chunk_sigmas in enumerate(chunks(sigmas, math.ceil(len(sigmas) / NUM_GPUS))):
+            gaussian_pyramid = nn.Conv2d(
+                1,
+                len(chunk_sigmas),
+                2 * self.max_radius + 1,
+                bias=False,
+                padding=self.max_radius,
+                padding_mode="zeros",
+            )
+            for j, s in enumerate(chunk_sigmas):
+                radius = int(truncate * s + 0.5)
+                kernel = torch_gaussian_kernel(width=2 * radius + 1, sigma=s.item())
+                pad_size = self.max_radius - radius
+                if pad_size > 0:
+                    padded_kernel = nn.ConstantPad2d(pad_size, 0)(kernel)
+                else:
+                    padded_kernel = kernel
+                gaussian_pyramid.weight.data[i].copy_(padded_kernel)
+            max_pool = nn.MaxPool3d(
+                kernel_size=self.footprint, padding=self.padding, stride=1
+            )
+            self.gaussian_pyramids.append((
+                gaussian_pyramid.cuda(i),
+                chunk_sigmas.cuda(i),
+                max_pool.cuda(i)
+            ))
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        gaussian_images = self.gaussian_pyramid(input)
-        # computing difference between two successive Gaussian blurred images
-        # multiplying with standard deviation provides scale invariance
-        dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
-            self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
-        )
-        image_max = self.max_pool(dog_images.unsqueeze(0))
+        local_maxima = []
+        for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(self.gaussian_pyramids):
+            gaussian_images = gaussian_pyramid(input.cuda(i))
+            # computing difference between two successive Gaussian blurred images
+            # multiplying with standard deviation provides scale invariance
+            dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
+                sigmas[:-1].unsqueeze(0).unsqueeze(0).T
+            )
+            print(gaussian_images.shape, dog_images.shape)
+            image_max = max_pool(dog_images.unsqueeze(0)).squeeze(0)
 
-        mask = dog_images == image_max.squeeze(0)
-        mask &= dog_images > self.threshold
+            mask = dog_images == image_max
+            mask &= dog_images > self.threshold
+            local_maxima.append(mask.nonzero().cpu().numpy())
+            print(local_maxima[-1].shape)
 
-        torch.cuda.synchronize(DEVICE)
+        local_maxima = np.vstack(local_maxima)
+        # torch.cuda.synchronize(DEVICE)
         # np.nonzero is faster than torch.nonzero()
         # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
         # lm = local_maxima.astype(np.float64)
 
-        local_maxima = mask.nonzero().cpu().numpy()
         lm = local_maxima.astype(np.float64)
 
         # translate final column of lm, which contains the index of the
@@ -132,7 +152,6 @@ class DifferenceOfGaussians(nn.Module):
         sigmas_of_peaks = self.sigma_list[local_maxima[:, 0]]
         # Remove sigma index and replace with sigmas
         lm = np.hstack([lm[:, 1:], sigmas_of_peaks[np.newaxis].T])
-
         if self.prune:
             blobs = _prune_blobs(lm, self.overlap, sigma_dim=1)
         else:
