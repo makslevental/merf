@@ -23,8 +23,7 @@ DATA_DIR = Path(expanduser(DATA_DIR))
 NUM_GPUS = torch.cuda.device_count()
 print(f"num gpus: {NUM_GPUS}")
 
-# DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 PIN_MEMORY = True
 
 
@@ -163,7 +162,7 @@ def torch_dog(dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5):
             min_sigma=min_sigma,
             max_sigma=max_sigma,
             sigma_bins=100,
-            footprint=np.array((11, 3, 3)),
+            footprint=np.array((15, 3, 3)),
             prune=prune,
             overlap=overlap,
             threshold=0.002,
@@ -180,7 +179,9 @@ def torch_dog(dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5):
         dog.eval()
         for i, img_tensor in enumerate(dataloader):
             blobs = dog(img_tensor)
-            return blobs
+            yield blobs
+            if i > 10:
+                break
 
 
 def torch_dog_test():
@@ -204,11 +205,11 @@ def torch_dog_img_test():
         screenshot, batch_size=1, pin_memory=True, num_workers=4
     )
 
-    blobs = torch_dog(train_dataloader, prune=True)
-    print("blobs: ", len(blobs))
-    make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
-    counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins="auto")
-    plt.show()
+    for blobs in torch_dog(train_dataloader, prune=True):
+        print("blobs: ", len(blobs))
+        make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
+        counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins=256)
+        plt.show()
 
 
 def main():
@@ -217,11 +218,11 @@ def main():
         plif_dataset, batch_size=1, pin_memory=True, num_workers=4
     )
 
-    blobs = torch_dog(plif_dataloader, prune=True)
-    print("blobs: ", len(blobs))
-    make_circles_fig(plif_dataset[0].squeeze(0).numpy(), blobs).show()
-    counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins="auto")
-    plt.show()
+    for i, blobs in enumerate(torch_dog(plif_dataloader, prune=True)):
+        print("blobs: ", len(blobs))
+        make_circles_fig(plif_dataset[i].squeeze(0).numpy(), blobs).show()
+        counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins=256)
+        plt.show()
 
 
 def test_gaussian_kernel():
