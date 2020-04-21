@@ -15,6 +15,7 @@ from skimage.filters import gaussian
 from skimage.io import imread
 from torch import nn
 
+from nns.dog.data import Trivial
 from sk_image.blob import make_circles_fig
 from sk_image.enhance_contrast import stretch_composite_histogram
 from sk_image.preprocess import make_figure
@@ -39,9 +40,9 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     for size, std, mgrid in zip(width, sigma, meshgrids):
         mean = (size - 1) / 2
         kernel *= (
-            1
-            / (std * math.sqrt(2 * math.pi))
-            * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
+                1
+                / (std * math.sqrt(2 * math.pi))
+                * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
         )
 
     # Make sure sum of values in gaussian kernel equals 1.
@@ -51,16 +52,16 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
 
 class DifferenceOfGaussians(nn.Module):
     def __init__(
-        self,
-        *,
-        max_sigma=10,
-        min_sigma=1,
-        sigma_ratio=1.2,
-        truncate=5.0,
-        footprint=3,
-        threshold=0.001,
-        prune=True,
-        overlap=0.5
+            self,
+            *,
+            max_sigma=10,
+            min_sigma=1,
+            sigma_bins=50,
+            truncate=5.0,
+            footprint=3,
+            threshold=0.001,
+            prune=True,
+            overlap=0.5
     ):
         super().__init__()
 
@@ -69,20 +70,19 @@ class DifferenceOfGaussians(nn.Module):
         self.prune = prune
         self.overlap = overlap
 
-        # k such that min_sigma*(sigma_ratio**k) > max_sigma
-        self.k = int(np.log(max_sigma / min_sigma) / np.log(sigma_ratio) + 1)
+        sigma_ratio = 1 + np.log(max_sigma/min_sigma) / sigma_bins
         # a geometric progression of standard deviations for gaussian kernels
         self.sigma_list = np.asarray(
-            [min_sigma * (sigma_ratio ** i) for i in range(self.k + 1)]
+            [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
         )
         sigmas = torch.from_numpy(self.sigma_list)
         self.register_buffer("sigmas", sigmas)
-        print("gaussian pyramid sigmas: ", len(sigmas))
+        print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(sigmas) + 0.5)
         self.gaussian_pyramid = nn.Conv2d(
             1,
-            self.k + 1,
+            sigma_bins + 1,
             2 * self.max_radius + 1,
             bias=False,
             padding=self.max_radius,
@@ -112,15 +112,19 @@ class DifferenceOfGaussians(nn.Module):
         # computing difference between two successive Gaussian blurred images
         # multiplying with standard deviation provides scale invariance
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
-            self.sigmas[: self.k].unsqueeze(0).unsqueeze(0).T
+            self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
         )
         image_max = self.max_pool(dog_images.unsqueeze(0))
 
         mask = dog_images == image_max.squeeze(0)
         mask &= dog_images > self.threshold
 
+        torch.cuda.synchronize(DEVICE)
         # np.nonzero is faster than torch.nonzero()
-        local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
+        # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
+        # lm = local_maxima.astype(np.float64)
+
+        local_maxima = mask.nonzero().cpu().numpy()
         lm = local_maxima.astype(np.float64)
 
         # translate final column of lm, which contains the index of the
@@ -134,18 +138,18 @@ class DifferenceOfGaussians(nn.Module):
         else:
             blobs = local_maxima
 
-        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
+        # blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
 
 
 def torch_dog(
-    img_tensor, min_sigma=1, max_sigma=10, sigma_ratio=1.01, prune=True, overlap=0.5
+        dataloader, min_sigma=1, max_sigma=15, prune=True, overlap=0.5
 ):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
             min_sigma=min_sigma,
             max_sigma=max_sigma,
-            sigma_ratio=sigma_ratio,
+            sigma_bins=100,
             footprint=np.array((11, 3, 3)),
             prune=prune,
             overlap=overlap,
@@ -153,7 +157,9 @@ def torch_dog(
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
-        blobs = dog(img_tensor)
+        for img_tensor in dataloader:
+            img_tensor = img_tensor.to(DEVICE)
+            blobs = dog(img_tensor)
     return blobs
 
 
@@ -173,16 +179,12 @@ def torch_dog_img_test():
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../../simulation/screenshot.png"
     )
-    img_orig = imread(image_pth, as_gray=True)
-    # values have to be float and also between 0,1 for peak finding to work
-    img_orig = img_as_float(img_orig)
-    filtered_img = gaussian(img_orig, sigma=1)
-    s2 = stretch_composite_histogram(filtered_img)
-    t_image = torch.from_numpy(s2).float().unsqueeze(0).unsqueeze(0)
-    t_image = t_image.to(DEVICE)
-    blobs = torch_dog(t_image, prune=True)
+    screenshot = Trivial(img_path=image_pth, num_repeats=10)
+    train_dataloader = torch.utils.data.DataLoader(screenshot, batch_size=1, pin_memory=True)
+
+    blobs = torch_dog(train_dataloader, prune=True)
     print("blobs: ", len(blobs))
-    # make_circles_fig(s2, blobs).show()
+    make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
 
 
 def main():
