@@ -112,14 +112,14 @@ class DifferenceOfGaussians(nn.Module):
                     padded_kernel = nn.ConstantPad2d(pad_size, 0)(kernel)
                 else:
                     padded_kernel = kernel
-                gaussian_pyramid.weight.data[i].copy_(padded_kernel)
+                gaussian_pyramid.weight.data[j].copy_(padded_kernel)
             max_pool = nn.MaxPool3d(
                 kernel_size=self.footprint, padding=self.padding, stride=1
             )
             self.gaussian_pyramids.append((
-                gaussian_pyramid.cuda(i),
-                chunk_sigmas.cuda(i),
-                max_pool.cuda(i)
+                gaussian_pyramid,
+                chunk_sigmas,
+                max_pool
             ))
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -131,15 +131,15 @@ class DifferenceOfGaussians(nn.Module):
             dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
                 sigmas[:-1].unsqueeze(0).unsqueeze(0).T
             )
-            print(gaussian_images.shape, dog_images.shape)
+            for d in dog_images:
+                make_figure(d.squeeze().cpu().numpy()).show()
             image_max = max_pool(dog_images.unsqueeze(0)).squeeze(0)
-
             mask = dog_images == image_max
             mask &= dog_images > self.threshold
             local_maxima.append(mask.nonzero().cpu().numpy())
-            print(local_maxima[-1].shape)
 
         local_maxima = np.vstack(local_maxima)
+        print(len(local_maxima))
         # torch.cuda.synchronize(DEVICE)
         # np.nonzero is faster than torch.nonzero()
         # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
@@ -162,7 +162,7 @@ class DifferenceOfGaussians(nn.Module):
 
 
 def torch_dog(
-        dataloader, min_sigma=1, max_sigma=15, prune=True, overlap=0.5
+        dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5
 ):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
@@ -172,14 +172,21 @@ def torch_dog(
             footprint=np.array((11, 3, 3)),
             prune=prune,
             overlap=overlap,
-        ).to(DEVICE)
+        )
+        for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(dog.gaussian_pyramids):
+            dog.gaussian_pyramids[i] = (
+                gaussian_pyramid.to(f"cuda:{i}"),
+                sigmas.to(f"cuda:{i}"),
+                max_pool.to(f"cuda:{i}")
+            )
+
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
         for img_tensor in dataloader:
             img_tensor = img_tensor.to(DEVICE)
             blobs = dog(img_tensor)
-    return blobs
+            return blobs
 
 
 def torch_dog_test():
