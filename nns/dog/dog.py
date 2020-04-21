@@ -4,6 +4,8 @@ import numbers
 import os
 from os.path import abspath
 from pathlib import Path
+from torch.multiprocessing import set_start_method
+
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,12 +31,13 @@ print(f"num gpus: {NUM_GPUS}")
 
 # DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DEVICE = torch.device("cpu")
+PIN_MEMORY = True
 
 
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
-        yield lst[i:i + n]
+        yield lst[i : i + n]
 
 
 def torch_gaussian_kernel(width=21, sigma=3, dim=2):
@@ -49,9 +52,9 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     for size, std, mgrid in zip(width, sigma, meshgrids):
         mean = (size - 1) / 2
         kernel *= (
-                1
-                / (std * math.sqrt(2 * math.pi))
-                * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
+            1
+            / (std * math.sqrt(2 * math.pi))
+            * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
         )
 
     # Make sure sum of values in gaussian kernel equals 1.
@@ -61,16 +64,16 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
 
 class DifferenceOfGaussians(nn.Module):
     def __init__(
-            self,
-            *,
-            max_sigma=10,
-            min_sigma=1,
-            sigma_bins=50,
-            truncate=5.0,
-            footprint=3,
-            threshold=0.001,
-            prune=True,
-            overlap=0.5
+        self,
+        *,
+        max_sigma=10,
+        min_sigma=1,
+        sigma_bins=50,
+        truncate=5.0,
+        footprint=3,
+        threshold=0.001,
+        prune=True,
+        overlap=0.5,
     ):
         super().__init__()
 
@@ -85,8 +88,7 @@ class DifferenceOfGaussians(nn.Module):
             [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
         )
         sigmas = torch.from_numpy(self.sigma_list)
-        self.register_buffer("sigmas", sigmas)
-        print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
+        # print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(sigmas) + 0.5)
         self.padding = (self.footprint - 1) // 2
@@ -95,7 +97,9 @@ class DifferenceOfGaussians(nn.Module):
             self.padding = tuple(self.padding)
 
         self.gaussian_pyramids = []
-        for i, chunk_sigmas in enumerate(chunks(sigmas, math.ceil(len(sigmas) / NUM_GPUS))):
+        for i, chunk_sigmas in enumerate(
+            chunks(sigmas, math.ceil(len(self.sigma_list) / NUM_GPUS))
+        ):
             gaussian_pyramid = nn.Conv2d(
                 1,
                 len(chunk_sigmas),
@@ -116,54 +120,51 @@ class DifferenceOfGaussians(nn.Module):
             max_pool = nn.MaxPool3d(
                 kernel_size=self.footprint, padding=self.padding, stride=1
             )
-            self.gaussian_pyramids.append((
-                gaussian_pyramid,
-                chunk_sigmas,
-                max_pool
-            ))
+            self.gaussian_pyramids.append((gaussian_pyramid, chunk_sigmas, max_pool))
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        local_maxima = []
-        for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(self.gaussian_pyramids):
-            gaussian_images = gaussian_pyramid(input.cuda(i))
+        lms = []
+        for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(
+            self.gaussian_pyramids
+        ):
+            gaussian_images = gaussian_pyramid(
+                input.to(f"cuda:{i}", non_blocking=PIN_MEMORY)
+            )
             # computing difference between two successive Gaussian blurred images
             # multiplying with standard deviation provides scale invariance
             dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
                 sigmas[:-1].unsqueeze(0).unsqueeze(0).T
             )
-            for d in dog_images:
-                make_figure(d.squeeze().cpu().numpy()).show()
             image_max = max_pool(dog_images.unsqueeze(0)).squeeze(0)
             mask = dog_images == image_max
             mask &= dog_images > self.threshold
-            local_maxima.append(mask.nonzero().cpu().numpy())
+            torch.cuda.synchronize()
+            # local_maxima = mask.nonzero().cpu().numpy()
 
-        local_maxima = np.vstack(local_maxima)
-        print(len(local_maxima))
-        # torch.cuda.synchronize(DEVICE)
-        # np.nonzero is faster than torch.nonzero()
-        # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
-        # lm = local_maxima.astype(np.float64)
+            # np.nonzero is faster than torch.nonzero()
+            local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
+            # lm = local_maxima.astype(np.float64)
 
-        lm = local_maxima.astype(np.float64)
+            lm = local_maxima.astype(np.float64)
 
-        # translate final column of lm, which contains the index of the
-        # sigma that produced the maximum intensity value, into the sigma
-        sigmas_of_peaks = self.sigma_list[local_maxima[:, 0]]
-        # Remove sigma index and replace with sigmas
-        lm = np.hstack([lm[:, 1:], sigmas_of_peaks[np.newaxis].T])
+            # translate final column of lm, which contains the index of the
+            # sigma that produced the maximum intensity value, into the sigma
+            sigmas_of_peaks = sigmas[local_maxima[:, 0]].cpu().numpy()
+
+            # Remove sigma index and replace with sigmas
+            lm = np.hstack([lm[:, 1:], sigmas_of_peaks[np.newaxis].T])
+            lms.append(lm)
+        lms = np.vstack(lms)
         if self.prune:
-            blobs = _prune_blobs(lm, self.overlap, sigma_dim=1)
+            blobs = _prune_blobs(lms, self.overlap, sigma_dim=1)
         else:
-            blobs = local_maxima
+            blobs = lms
 
         # blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
 
 
-def torch_dog(
-        dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5
-):
+def torch_dog(dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5):
     with torch.no_grad():
         dog = DifferenceOfGaussians(
             min_sigma=min_sigma,
@@ -175,18 +176,17 @@ def torch_dog(
         )
         for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(dog.gaussian_pyramids):
             dog.gaussian_pyramids[i] = (
-                gaussian_pyramid.to(f"cuda:{i}"),
-                sigmas.to(f"cuda:{i}"),
-                max_pool.to(f"cuda:{i}")
+                gaussian_pyramid.to(f"cuda:{i}", non_blocking=PIN_MEMORY),
+                sigmas.to(f"cuda:{i}", non_blocking=PIN_MEMORY),
+                max_pool.to(f"cuda:{i}", non_blocking=PIN_MEMORY),
             )
 
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
-        for img_tensor in dataloader:
-            img_tensor = img_tensor.to(DEVICE)
+        for i, img_tensor in enumerate(dataloader):
             blobs = dog(img_tensor)
-            return blobs
+    return blobs
 
 
 def torch_dog_test():
@@ -206,11 +206,13 @@ def torch_dog_img_test():
         "../../simulation/screenshot.png"
     )
     screenshot = Trivial(img_path=image_pth, num_repeats=10)
-    train_dataloader = torch.utils.data.DataLoader(screenshot, batch_size=1, pin_memory=True)
+    train_dataloader = torch.utils.data.DataLoader(
+        screenshot, batch_size=1, pin_memory=True, num_workers=4
+    )
 
     blobs = torch_dog(train_dataloader, prune=True)
-    print("blobs: ", len(blobs))
-    make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
+    # print("blobs: ", len(blobs))
+    # make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
 
 
 def main():
@@ -246,5 +248,9 @@ if __name__ == "__main__":
     # torch_dog_test()
     # a = torch.zeros(10, dtype=torch.bool)
     # print(a.int())
+    set_start_method('spawn')
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+    #     torch_dog_img_test()
+    # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
     torch_dog_img_test()
     # main()

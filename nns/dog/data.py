@@ -14,20 +14,22 @@ class Trivial(Dataset):
     def __init__(self, img_path, num_repeats=10):
         self.img_path = img_path
         self.repeats = num_repeats
-        self.tfms = transforms.Compose([
-            Lambda(lambda img: img_as_float(img)),
-            Lambda(lambda img: gaussian(img, sigma=1)),
-            Lambda(lambda img: stretch_composite_histogram(img)),
-            Lambda(lambda img: torch.from_numpy(img[np.newaxis, :, :]).float()),
-        ])
+
+    def transform(self, img):
+        img = img_as_float(img)
+        img = gaussian(img, sigma=1)
+        img = stretch_composite_histogram(img)
+        img = torch.from_numpy(img[np.newaxis, :, :]).float()
+        return img
 
     def __len__(self):
         return self.repeats
 
-    def __getitem__(self, _idx):
+    def __getitem__(self, idx):
         # if torch.is_tensor(idx):
         #     idx = idx.tolist()
-
+        # pth = str(self.img_path).replace("screenshot", "screenshot"+str(idx))
         image = io.imread(self.img_path, as_gray=True)
-        t_img = self.tfms(image)
+        t_img = self.transform(image)
         return t_img
+
