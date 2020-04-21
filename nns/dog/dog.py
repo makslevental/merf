@@ -1,31 +1,25 @@
-import glob
 import math
 import numbers
 import os
-from os.path import abspath
+from os.path import expanduser
 from pathlib import Path
-from torch.multiprocessing import set_start_method
-
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib import cm
-from skimage import img_as_float
 from skimage.feature.blob import _prune_blobs
-from skimage.filters import gaussian
-from skimage.io import imread
 from torch import nn
+from torch.multiprocessing import set_start_method
 
-from nns.dog.data import Trivial
+from nns.dog.data import Trivial, PLIF
 from sk_image.blob import make_circles_fig
-from sk_image.enhance_contrast import stretch_composite_histogram
 from sk_image.preprocess import make_figure
 
 DATA_DIR = os.environ.get("FSP_DATA_DIR")
 if DATA_DIR is None:
     raise Exception("need to specify env var FSP_DATA_DIR")
-DATA_DIR = Path(abspath(DATA_DIR))
+DATA_DIR = Path(expanduser(DATA_DIR))
 NUM_GPUS = torch.cuda.device_count()
 print(f"num gpus: {NUM_GPUS}")
 
@@ -138,7 +132,6 @@ class DifferenceOfGaussians(nn.Module):
             image_max = max_pool(dog_images.unsqueeze(0)).squeeze(0)
             mask = dog_images == image_max
             mask &= dog_images > self.threshold
-            torch.cuda.synchronize()
             # local_maxima = mask.nonzero().cpu().numpy()
 
             # np.nonzero is faster than torch.nonzero()
@@ -173,6 +166,7 @@ def torch_dog(dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5):
             footprint=np.array((11, 3, 3)),
             prune=prune,
             overlap=overlap,
+            threshold=0.002,
         )
         for i, (gaussian_pyramid, sigmas, max_pool) in enumerate(dog.gaussian_pyramids):
             dog.gaussian_pyramids[i] = (
@@ -186,7 +180,7 @@ def torch_dog(dataloader, min_sigma=1, max_sigma=15, prune=False, overlap=0.5):
         dog.eval()
         for i, img_tensor in enumerate(dataloader):
             blobs = dog(img_tensor)
-    return blobs
+            return blobs
 
 
 def torch_dog_test():
@@ -211,22 +205,23 @@ def torch_dog_img_test():
     )
 
     blobs = torch_dog(train_dataloader, prune=True)
-    # print("blobs: ", len(blobs))
-    # make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
+    print("blobs: ", len(blobs))
+    make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
+    counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins="auto")
+    plt.show()
 
 
 def main():
-    for image_pth in glob.glob(DATA_DIR / "*.TIF"):
-        img_orig = imread(image_pth, as_gray=True)
-        # values have to be float and also between 0,1 for peak finding to work
-        img_orig = img_as_float(img_orig)
-        filtered_img = gaussian(img_orig, sigma=1)
-        s2 = stretch_composite_histogram(filtered_img)
-        t_image = torch.from_numpy(s2[np.newaxis, np.newaxis, :, :]).float()
-        t_image = t_image.to(DEVICE)
-        blobs = torch_dog(t_image, prune=True)
-        print("blobs: ", len(blobs))
-        break
+    plif_dataset = PLIF(plif_dir=DATA_DIR)
+    plif_dataloader = torch.utils.data.DataLoader(
+        plif_dataset, batch_size=1, pin_memory=True, num_workers=4
+    )
+
+    blobs = torch_dog(plif_dataloader, prune=True)
+    print("blobs: ", len(blobs))
+    make_circles_fig(plif_dataset[0].squeeze(0).numpy(), blobs).show()
+    counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins="auto")
+    plt.show()
 
 
 def test_gaussian_kernel():
@@ -248,9 +243,9 @@ if __name__ == "__main__":
     # torch_dog_test()
     # a = torch.zeros(10, dtype=torch.bool)
     # print(a.int())
-    set_start_method('spawn')
+    set_start_method("spawn")
     # with torch.autograd.profiler.profile(use_cuda=True) as prof:
     #     torch_dog_img_test()
     # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
-    torch_dog_img_test()
-    # main()
+    # torch_dog_img_test()
+    main()
