@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from matplotlib import cm
+from scipy import spatial
 from skimage import img_as_float
-from skimage.feature.blob import _prune_blobs
+from skimage.feature.blob import _blob_overlap
 from skimage.filters import gaussian
 from skimage.io import imread
 from torch import nn
@@ -28,6 +29,33 @@ DATA_DIR = Path(abspath(DATA_DIR))
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
+def prune_blobs(blobs_array, overlap, local_maxima, *, sigma_dim=1):
+    sigma = blobs_array[:, -sigma_dim:].max()
+    distance = 2 * sigma * math.sqrt(blobs_array.shape[1] - sigma_dim)
+    tree = spatial.cKDTree(blobs_array[:, :-sigma_dim])
+    pairs = np.array(list(tree.query_pairs(distance)))
+    if len(pairs) == 0:
+        return blobs_array
+    else:
+        for (i, j) in pairs:
+            blob1, blob2 = blobs_array[i], blobs_array[j]
+            blob_overlap = _blob_overlap(blob1, blob2, sigma_dim=sigma_dim)
+            if blob_overlap == 1.0:
+                if local_maxima[i] < local_maxima[j]:
+                    blob2[-1] = 0
+                else:
+                    blob1[-1] = 0
+            elif overlap < blob_overlap < 1.0:
+                # note: this test works even in the anisotropic case because
+                # all sigmas increase together.
+                if blob1[-1] < blob2[-1]:
+                    blob2[-1] = 0
+                else:
+                    blob1[-1] = 0
+
+    return blobs_array[blobs_array[:, -1] > 0]
+
+
 def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     if isinstance(width, numbers.Number):
         width = [width] * dim
@@ -40,9 +68,9 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     for size, std, mgrid in zip(width, sigma, meshgrids):
         mean = (size - 1) / 2
         kernel *= (
-                1
-                / (std * math.sqrt(2 * math.pi))
-                * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
+            1
+            / (std * math.sqrt(2 * math.pi))
+            * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
         )
 
     # Make sure sum of values in gaussian kernel equals 1.
@@ -52,16 +80,16 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
 
 class DifferenceOfGaussians(nn.Module):
     def __init__(
-            self,
-            *,
-            max_sigma=10,
-            min_sigma=1,
-            sigma_bins=50,
-            truncate=5.0,
-            footprint=3,
-            threshold=0.001,
-            prune=True,
-            overlap=0.5
+        self,
+        *,
+        max_sigma=10,
+        min_sigma=1,
+        sigma_bins=50,
+        truncate=5.0,
+        footprint=3,
+        threshold=0.001,
+        prune=True,
+        overlap=0.5
     ):
         super().__init__()
 
@@ -70,10 +98,15 @@ class DifferenceOfGaussians(nn.Module):
         self.prune = prune
         self.overlap = overlap
 
-        sigma_ratio = 1 + np.log(max_sigma/min_sigma) / sigma_bins
-        # a geometric progression of standard deviations for gaussian kernels
-        self.sigma_list = np.asarray(
-            [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
+        # sigma_ratio = 1 + np.log(max_sigma/min_sigma) / (sigma_bins-1)
+        # # a geometric progression of standard deviations for gaussian kernels
+        # self.sigma_list = np.asarray(
+        #     [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
+        # )
+        self.sigma_list = np.linspace(
+            start=min_sigma,
+            stop=max_sigma + (max_sigma - min_sigma) / sigma_bins,
+            num=sigma_bins + 1,
         )
         sigmas = torch.from_numpy(self.sigma_list)
         self.register_buffer("sigmas", sigmas)
@@ -106,54 +139,64 @@ class DifferenceOfGaussians(nn.Module):
         self.max_pool = nn.MaxPool3d(
             kernel_size=self.footprint, padding=self.padding, stride=1
         )
+        # self.up = nn.Upsample(scale_factor=2, mode='nearest')
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        # upped_input = self.up(input)
         gaussian_images = self.gaussian_pyramid(input)
         # computing difference between two successive Gaussian blurred images
         # multiplying with standard deviation provides scale invariance
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
             self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
         )
-        image_max = self.max_pool(dog_images.unsqueeze(0))
+        # for d in dog_images:
+        #     make_figure(d.cpu().numpy()).show()
+        # x, y, r = map(int, [968.2616, 313.42416, 26.050772])
+        # x, y, r = np.array([964.84,663.4415,5.3138995], dtype=np.int)
+        # for i, d in enumerate(dog_images):
+        #     f = make_figure(d.cpu().numpy()[y-50:y+50, x-50:x+50])
+        #     f.savefig(f"dogs/{i}.png")
+        #     plt.close(f)
+        image_max = self.max_pool(dog_images.unsqueeze(0)).squeeze(0)
 
-        mask = dog_images == image_max.squeeze(0)
+        # p = image_max[:, y, x].cpu().numpy()
+        # plt.plot(p)
+        # plt.show()
+
+        mask = dog_images == image_max
+
+        # p = mask[:, y, x].cpu().numpy()
+        # plt.plot(p)
+        # plt.show()
+
         mask &= dog_images > self.threshold
 
-        torch.cuda.synchronize(DEVICE)
         # np.nonzero is faster than torch.nonzero()
         # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
         # lm = local_maxima.astype(np.float64)
 
-        local_maxima = mask.nonzero().cpu().numpy()
-        lm = local_maxima.astype(np.float64)
+        local_maxima = image_max[mask].cpu().numpy()
+        coords = mask.nonzero().cpu().numpy()
+        cds = coords.astype(np.float64)
 
         # translate final column of lm, which contains the index of the
         # sigma that produced the maximum intensity value, into the sigma
-        sigmas_of_peaks = self.sigma_list[local_maxima[:, 0]]
+        sigmas_of_peaks = self.sigma_list[coords[:, 0]]
         # Remove sigma index and replace with sigmas
-        lm = np.hstack([lm[:, 1:], sigmas_of_peaks[np.newaxis].T])
-
+        cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
+        print("preprune blobs: ", len(cds))
         if self.prune:
-            blobs = _prune_blobs(lm, self.overlap, sigma_dim=1)
+            blobs = prune_blobs(cds, self.overlap, local_maxima, sigma_dim=1)
         else:
-            blobs = local_maxima
+            blobs = cds
 
-        # blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
+        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
 
 
-def torch_dog(
-        dataloader, min_sigma=1, max_sigma=15, prune=True, overlap=0.5
-):
+def torch_dog(dataloader, **dog_kwargs):
     with torch.no_grad():
-        dog = DifferenceOfGaussians(
-            min_sigma=min_sigma,
-            max_sigma=max_sigma,
-            sigma_bins=100,
-            footprint=np.array((11, 3, 3)),
-            prune=prune,
-            overlap=overlap,
-        ).to(DEVICE)
+        dog = DifferenceOfGaussians(**dog_kwargs).to(DEVICE)
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
@@ -179,12 +222,24 @@ def torch_dog_img_test():
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../../simulation/screenshot.png"
     )
-    screenshot = Trivial(img_path=image_pth, num_repeats=10)
-    train_dataloader = torch.utils.data.DataLoader(screenshot, batch_size=1, pin_memory=True)
+    screenshot = Trivial(img_path=image_pth, num_repeats=1)
+    make_figure(screenshot[0].squeeze(0).numpy()).show()
+    train_dataloader = torch.utils.data.DataLoader(
+        screenshot, batch_size=1, pin_memory=True
+    )
 
-    blobs = torch_dog(train_dataloader, prune=True)
-    print("blobs: ", len(blobs))
+    blobs = torch_dog(
+        train_dataloader,
+        min_sigma=1,
+        max_sigma=40,
+        prune=True,
+        overlap=0.9,
+        threshold=0.1,
+    )
+    print(len(blobs))
     make_circles_fig(screenshot[0].squeeze(0).numpy(), blobs).show()
+    plt.hist([r for (_, _, r) in blobs], bins=256)
+    plt.show()
 
 
 def main():
