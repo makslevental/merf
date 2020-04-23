@@ -36,22 +36,20 @@ def prune_blobs(blobs_array, overlap, local_maxima, *, sigma_dim=1):
     pairs = np.array(list(tree.query_pairs(distance)))
     if len(pairs) == 0:
         return blobs_array
-    else:
-        for (i, j) in pairs:
-            blob1, blob2 = blobs_array[i], blobs_array[j]
-            blob_overlap = _blob_overlap(blob1, blob2, sigma_dim=sigma_dim)
-            if blob_overlap == 1.0:
-                if local_maxima[i] < local_maxima[j]:
-                    blob2[-1] = 0
-                else:
-                    blob1[-1] = 0
-            elif overlap < blob_overlap < 1.0:
-                # note: this test works even in the anisotropic case because
-                # all sigmas increase together.
-                if blob1[-1] < blob2[-1]:
-                    blob2[-1] = 0
-                else:
-                    blob1[-1] = 0
+
+    for (i, j) in pairs:
+        blob1, blob2 = blobs_array[i], blobs_array[j]
+        blob_overlap = _blob_overlap(blob1, blob2, sigma_dim=sigma_dim)
+        if blob_overlap == 1.0:
+            if local_maxima[i] > local_maxima[j]:
+                blob2[-1] = 0
+            else:
+                blob1[-1] = 0
+        elif overlap < blob_overlap < 1.0:
+            if blob1[-1] < blob2[-1]:
+                blob2[-1] = 0
+            else:
+                blob1[-1] = 0
 
     return blobs_array[blobs_array[:, -1] > 0]
 
@@ -98,11 +96,6 @@ class DifferenceOfGaussians(nn.Module):
         self.prune = prune
         self.overlap = overlap
 
-        # sigma_ratio = 1 + np.log(max_sigma/min_sigma) / (sigma_bins-1)
-        # # a geometric progression of standard deviations for gaussian kernels
-        # self.sigma_list = np.asarray(
-        #     [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
-        # )
         self.sigma_list = np.linspace(
             start=min_sigma,
             stop=max_sigma + (max_sigma - min_sigma) / sigma_bins,
@@ -111,16 +104,19 @@ class DifferenceOfGaussians(nn.Module):
         sigmas = torch.from_numpy(self.sigma_list)
         self.register_buffer("sigmas", sigmas)
         print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
+
         # max is performed in order to accommodate largest filter
         self.max_radius = int(truncate * max(sigmas) + 0.5)
         self.gaussian_pyramid = nn.Conv2d(
-            1,
-            sigma_bins + 1,
-            2 * self.max_radius + 1,
+            1,  # greyscale input
+            sigma_bins + 1,  # sigma+1 filters so that there are sigma dogs
+            2 * self.max_radius
+            + 1,  # conv stack should be as wide as widest gaussian filter
             bias=False,
-            padding=self.max_radius,
+            padding=self.max_radius,  # hence no shrink of image
             padding_mode="zeros",
         )
+
         for i, s in enumerate(sigmas):
             radius = int(truncate * s + 0.5)
             kernel = torch_gaussian_kernel(width=2 * radius + 1, sigma=s.item())
@@ -139,47 +135,26 @@ class DifferenceOfGaussians(nn.Module):
         self.max_pool = nn.MaxPool3d(
             kernel_size=self.footprint, padding=self.padding, stride=1
         )
-        # self.up = nn.Upsample(scale_factor=2, mode='nearest')
+        self.max_conv = nn.Conv3d(
+            1,1,kernel_size=self.footprint, padding=self.padding, stride=1
+        )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        # upped_input = self.up(input)
         gaussian_images = self.gaussian_pyramid(input)
         # computing difference between two successive Gaussian blurred images
         # multiplying with standard deviation provides scale invariance
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
             self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
         )
-        # for d in dog_images:
-        #     make_figure(d.cpu().numpy()).show()
-        # x, y, r = map(int, [968.2616, 313.42416, 26.050772])
-        # x, y, r = np.array([964.84,663.4415,5.3138995], dtype=np.int)
-        # for i, d in enumerate(dog_images):
-        #     f = make_figure(d.cpu().numpy()[y-50:y+50, x-50:x+50])
-        #     f.savefig(f"dogs/{i}.png")
-        #     plt.close(f)
         image_max = self.max_pool(dog_images.unsqueeze(0)).squeeze(0)
-
-        # p = image_max[:, y, x].cpu().numpy()
-        # plt.plot(p)
-        # plt.show()
-
         mask = dog_images == image_max
-
-        # p = mask[:, y, x].cpu().numpy()
-        # plt.plot(p)
-        # plt.show()
-
         mask &= dog_images > self.threshold
-
-        # np.nonzero is faster than torch.nonzero()
-        # local_maxima = np.column_stack(mask.cpu().numpy().nonzero())
-        # lm = local_maxima.astype(np.float64)
 
         local_maxima = image_max[mask].cpu().numpy()
         coords = mask.nonzero().cpu().numpy()
         cds = coords.astype(np.float64)
 
-        # translate final column of lm, which contains the index of the
+        # translate final column of cds, which contains the index of the
         # sigma that produced the maximum intensity value, into the sigma
         sigmas_of_peaks = self.sigma_list[coords[:, 0]]
         # Remove sigma index and replace with sigmas
