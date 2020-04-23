@@ -1,8 +1,7 @@
-import glob
 import math
 import numbers
 import os
-from os.path import abspath
+from os.path import expanduser
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -10,23 +9,23 @@ import numpy as np
 import torch
 from matplotlib import cm
 from scipy import spatial
-from skimage import img_as_float
 from skimage.feature.blob import _blob_overlap
-from skimage.filters import gaussian
-from skimage.io import imread
 from torch import nn
+from torch.multiprocessing import set_start_method
 
-from nns.dog.data import Trivial
+from nns.dog.data import Trivial, PLIF
 from sk_image.blob import make_circles_fig
-from sk_image.enhance_contrast import stretch_composite_histogram
 from sk_image.preprocess import make_figure
 
 DATA_DIR = os.environ.get("FSP_DATA_DIR")
 if DATA_DIR is None:
     raise Exception("need to specify env var FSP_DATA_DIR")
-DATA_DIR = Path(abspath(DATA_DIR))
+DATA_DIR = Path(expanduser(DATA_DIR))
+NUM_GPUS = torch.cuda.device_count()
+print(f"num gpus: {NUM_GPUS}")
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+PIN_MEMORY = True
 
 
 def prune_blobs(blobs_array, overlap, local_maxima, *, sigma_dim=1):
@@ -87,7 +86,7 @@ class DifferenceOfGaussians(nn.Module):
         footprint=3,
         threshold=0.001,
         prune=True,
-        overlap=0.5
+        overlap=0.5,
     ):
         super().__init__()
 
@@ -136,7 +135,7 @@ class DifferenceOfGaussians(nn.Module):
             kernel_size=self.footprint, padding=self.padding, stride=1
         )
         self.max_conv = nn.Conv3d(
-            1,1,kernel_size=self.footprint, padding=self.padding, stride=1
+            1, 1, kernel_size=self.footprint, padding=self.padding, stride=1
         )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
@@ -171,12 +170,12 @@ class DifferenceOfGaussians(nn.Module):
 
 def torch_dog(dataloader, **dog_kwargs):
     with torch.no_grad():
-        dog = DifferenceOfGaussians(**dog_kwargs).to(DEVICE)
+        dog = DifferenceOfGaussians(**dog_kwargs).to(DEVICE, non_blocking=PIN_MEMORY)
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
         for img_tensor in dataloader:
-            img_tensor = img_tensor.to(DEVICE)
+            img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
             blobs = dog(img_tensor)
     return blobs
 
@@ -200,7 +199,7 @@ def torch_dog_img_test():
     screenshot = Trivial(img_path=image_pth, num_repeats=1)
     make_figure(screenshot[0].squeeze(0).numpy()).show()
     train_dataloader = torch.utils.data.DataLoader(
-        screenshot, batch_size=1, pin_memory=True
+        screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
 
     blobs = torch_dog(
@@ -218,17 +217,16 @@ def torch_dog_img_test():
 
 
 def main():
-    for image_pth in glob.glob(DATA_DIR / "*.TIF"):
-        img_orig = imread(image_pth, as_gray=True)
-        # values have to be float and also between 0,1 for peak finding to work
-        img_orig = img_as_float(img_orig)
-        filtered_img = gaussian(img_orig, sigma=1)
-        s2 = stretch_composite_histogram(filtered_img)
-        t_image = torch.from_numpy(s2[np.newaxis, np.newaxis, :, :]).float()
-        t_image = t_image.to(DEVICE)
-        blobs = torch_dog(t_image, prune=True)
+    plif_dataset = PLIF(plif_dir=DATA_DIR)
+    plif_dataloader = torch.utils.data.DataLoader(
+        plif_dataset, batch_size=1, pin_memory=PIN_MEMORY, num_workers=4
+    )
+
+    for i, blobs in enumerate(torch_dog(plif_dataloader, prune=True)):
         print("blobs: ", len(blobs))
-        break
+        make_circles_fig(plif_dataset[i].squeeze(0).numpy(), blobs).show()
+        counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins=256)
+        plt.show()
 
 
 def test_gaussian_kernel():
@@ -247,8 +245,6 @@ def test_gaussian_kernel():
 
 
 if __name__ == "__main__":
-    # torch_dog_test()
-    # a = torch.zeros(10, dtype=torch.bool)
-    # print(a.int())
     torch_dog_img_test()
-    # main()
+    set_start_method("spawn")
+    main()
