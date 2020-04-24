@@ -25,7 +25,7 @@ def create_circular_mask(h, w, center=None, radius=None):
 
 if __name__ == "__main__":
     window_size = 1000
-    V = np.zeros(100, [("center", np.float32, 3), ("radius", np.float32, 1)])
+    V = np.zeros(10, [("center", np.float32, 3), ("radius", np.float32, 1)])
     cluster_mean = np.random.uniform(window_size // 4, 3 * window_size // 4, size=2)
     cluster_std = np.diag(
         np.random.uniform((window_size // 8) ** 2, (window_size // 4) ** 2, size=2)
@@ -68,14 +68,14 @@ if __name__ == "__main__":
         )
         png.from_array(framebuffer, "RGB").save("screenshot.png")
 
-    points = gloo.Program("vertex.glsl", "fragment_shader.glsl")
+    points = gloo.Program("vertex_shader.glsl", "fragment_shader.glsl")
     points.bind(V.view(gloo.VertexBuffer))
 
     framebuffer = np.zeros((window.height, 3 * window.width), dtype=np.uint8)
     app.run(framecount=1)
 
     im = imread("screenshot.png", as_gray=True)
-    make_figure(im).show()
+    # make_figure(im).show()
     background = np.zeros_like(im)
     noisy = random_noise(background, mode="gaussian")
     noisy = random_noise(noisy, mode="poisson")
