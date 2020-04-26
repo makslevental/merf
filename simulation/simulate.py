@@ -1,12 +1,14 @@
 import csv
 
 import numpy as np
+from PIL import Image
 from glumpy import app, gloo, gl
 from glumpy.ext import png
 from skimage.filters import gaussian
 from skimage.io import imread
 from skimage.util import random_noise
 
+from sk_image.blob import make_circles_fig
 from sk_image.preprocess import make_figure
 
 
@@ -30,8 +32,8 @@ if __name__ == "__main__":
     cluster_std = np.diag(
         np.random.uniform((window_size // 8) ** 2, (window_size // 4) ** 2, size=2)
     )
-    V["center"][:, :2] = np.random.multivariate_normal(
-        mean=cluster_mean, cov=cluster_std, size=len(V)
+    V["center"][:, :2] = np.round(
+        np.random.multivariate_normal(mean=cluster_mean, cov=cluster_std, size=len(V))
     )
     # V["center"][:, 2] = np.random.uniform(0, 1, len(V))
     V["radius"] = np.random.uniform(5, 30, len(V))
@@ -80,10 +82,11 @@ if __name__ == "__main__":
     noisy = random_noise(background, mode="gaussian")
     noisy = random_noise(noisy, mode="poisson")
 
+    blobs = []
     for (y, x, _z), r in V:
+        blobs.append((x,y,r))
         mask = create_circular_mask(window_size, window_size, (y, x), r * 0.9)
         noisy[mask] = 0
-
     res = gaussian(noisy + im, sigma=1)
-    make_figure(res).show()
-    make_figure(noisy+im).savefig("screenshot.png")
+    # make_circles_fig(res, np.array(blobs)).show()
+    Image.fromarray((res*255).astype(np.uint8)).save("screenshot.png")
