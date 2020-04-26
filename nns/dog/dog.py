@@ -7,7 +7,6 @@ import torch
 from torch import nn
 from torch import optim
 
-
 from nns.dog.data import Trivial, PLIF
 from nns.dog.model import DifferenceOfGaussians
 from sk_image.blob import make_circles_fig
@@ -29,7 +28,7 @@ def dog_train_test():
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../../simulation/screenshot.png"
     )
-    screenshot = Trivial(img_path=image_pth, num_repeats=100)
+    screenshot = Trivial(img_path=image_pth, num_repeats=50)
     train_dataloader = torch.utils.data.DataLoader(
         screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
@@ -56,10 +55,15 @@ def dog_train_test():
         print(loss)
         optimizer.step()
 
-    for name, param in dog.named_parameters():
-        print(name, param.data)
-        if name == "threshold":
-            break
+    dog.eval()
+
+    for img_tensor, truth_tensor in train_dataloader:
+        img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
+        image_max, mask = dog(img_tensor)
+        blobs = dog.make_blobs(image_max, mask)
+        print(len(blobs))
+        make_circles_fig(screenshot[0][0].squeeze(0).numpy(), blobs).show()
+        break
 
 
 def dog_train():
