@@ -49,7 +49,7 @@ def dog_train_test():
 
         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
         truth_tensor = truth_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-        local_maxima, mask = dog(img_tensor)
+        local_maxima, mask = dog(img_tensor, soft_mask=True)
         loss = criterion(mask.unsqueeze(0), truth_tensor)
         loss.backward()
         print(loss)
@@ -59,8 +59,8 @@ def dog_train_test():
 
     for img_tensor, truth_tensor in train_dataloader:
         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-        image_max, mask = dog(img_tensor)
-        blobs = dog.make_blobs(image_max, mask)
+        local_maxima, mask = dog(img_tensor)
+        blobs = dog.make_blobs(mask, local_maxima)
         print(len(blobs))
         make_circles_fig(screenshot[0][0].squeeze(0).numpy(), blobs).show()
         break
