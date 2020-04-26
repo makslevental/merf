@@ -11,6 +11,7 @@ from nns.dog.data import Trivial, PLIF
 from nns.dog.model import DifferenceOfGaussians
 from sk_image.blob import make_circles_fig
 from sk_image.preprocess import make_figure
+import numpy as np
 
 DATA_DIR = os.environ.get("FSP_DATA_DIR")
 if DATA_DIR is None:
@@ -28,7 +29,7 @@ def dog_train_test():
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../../simulation/screenshot.png"
     )
-    screenshot = Trivial(img_path=image_pth, num_repeats=50)
+    screenshot = Trivial(img_path=image_pth, num_repeats=100)
     train_dataloader = torch.utils.data.DataLoader(
         screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
@@ -42,7 +43,7 @@ def dog_train_test():
         else:
             param.requires_grad = False
 
-    criterion = nn.CrossEntropyLoss(reduction="sum")
+    criterion = nn.NLLLoss(reduction="sum")
     optimizer = optim.Adam(dog.parameters())
     for i, (img_tensor, truth_tensor) in enumerate(train_dataloader):
         optimizer.zero_grad()
@@ -54,6 +55,10 @@ def dog_train_test():
         loss.backward()
         print(loss)
         optimizer.step()
+
+    for name, param in dog.named_parameters():
+        if name == "threshold":
+            print(name, param.data)
 
     dog.eval()
 
@@ -93,9 +98,9 @@ def torch_dog(dataloader, **dog_kwargs):
         dog.eval()
         for img_tensor, truth_tensor in dataloader:
             img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-            image_max, mask = dog(img_tensor)
-            blobs = dog.make_blobs(image_max, mask)
-    return blobs
+            mask, local_maxima = dog(img_tensor)
+            blobs = dog.make_blobs(local_maxima, mask)
+            return blobs
 
 
 def torch_dog_img_test():
@@ -103,24 +108,26 @@ def torch_dog_img_test():
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../../simulation/screenshot.png"
     )
-    screenshot = Trivial(img_path=image_pth, num_repeats=1)
+    screenshot = Trivial(img_path=image_pth, num_repeats=100)
     make_figure(screenshot[0][0].squeeze(0).numpy()).show()
     train_dataloader = torch.utils.data.DataLoader(
         screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
-
-    blobs = torch_dog(
-        train_dataloader,
-        min_sigma=1,
-        max_sigma=40,
-        prune=True,
-        overlap=0.9,
-        threshold=0.1,
-    )
-    print(len(blobs))
-    make_circles_fig(screenshot[0][0].squeeze(0).numpy(), blobs).show()
-    plt.hist([r for (_, _, r) in blobs], bins=256)
-    plt.show()
+    for t in np.linspace(0.01, 1, 100):
+        blobs = torch_dog(
+            train_dataloader,
+            min_sigma=1,
+            max_sigma=40,
+            prune=True,
+            overlap=0.9,
+            threshold=t,
+        )
+        print(len(blobs))
+        make_circles_fig(screenshot[0][0].squeeze(0).numpy(), blobs).savefig(
+            f"/home/maksim/dev_projects/old_merf/merf/nns/dog/dogs/{t}.png"
+        )
+    # plt.hist([r for (_, _, r) in blobs], bins=256)
+    # plt.show()
 
 
 def main():

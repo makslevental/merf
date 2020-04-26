@@ -87,6 +87,7 @@ if __name__ == "__main__":
         blobs.append((x,y,r))
         mask = create_circular_mask(window_size, window_size, (y, x), r * 0.9)
         noisy[mask] = 0
-    res = gaussian(noisy + im, sigma=1)
+    noise_strength = 2
+    res = gaussian(2*noisy + im, sigma=1)
     # make_circles_fig(res, np.array(blobs)).show()
     Image.fromarray((res*255).astype(np.uint8)).save("screenshot.png")
