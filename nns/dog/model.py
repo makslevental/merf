@@ -10,22 +10,23 @@ from torch import nn
 
 class DifferenceOfGaussians(nn.Module):
     def __init__(
-            self,
-            *,
-            max_sigma=10,
-            min_sigma=1,
-            sigma_bins=50,
-            truncate=5.0,
-            footprint=3,
-            threshold=0.001,
-            prune=True,
-            overlap=0.5,
+        self,
+        *,
+        max_sigma=10,
+        min_sigma=1,
+        sigma_bins=50,
+        truncate=5.0,
+        footprint=3,
+        threshold=0.001,
+        prune=True,
+        overlap=0.5,
     ):
         super().__init__()
 
         self.footprint = footprint
         self.prune = prune
         self.overlap = overlap
+        self.threshold = threshold
 
         self.sigma_list = np.linspace(
             start=min_sigma,
@@ -66,8 +67,6 @@ class DifferenceOfGaussians(nn.Module):
         self.max_pool = nn.MaxPool3d(
             kernel_size=self.footprint, padding=self.padding, stride=1
         )
-        self.threshold = nn.Parameter(torch.tensor(-threshold))
-        self.relu = nn.ReLU()
 
     def forward(self, input: torch.Tensor, soft_mask=False):
         gaussian_images = self.gaussian_pyramid(input)
@@ -76,14 +75,8 @@ class DifferenceOfGaussians(nn.Module):
         dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
             self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
         )
-
         local_maxima = self.max_pool(dog_images.unsqueeze(0)).squeeze(0)
-        local_maxima = local_maxima + self.threshold
-        local_maxima = self.relu(local_maxima)
-        if soft_mask:
-            mask = 1 - (local_maxima - (dog_images + self.threshold))
-        else:
-            mask = local_maxima == (dog_images + self.threshold)
+        mask = (local_maxima == dog_images) & (dog_images > self.threshold)
         return local_maxima, mask
 
     def make_blobs(self, mask, local_maxima=None):
@@ -118,9 +111,9 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     for size, std, mgrid in zip(width, sigma, meshgrids):
         mean = (size - 1) / 2
         kernel *= (
-                1
-                / (std * math.sqrt(2 * math.pi))
-                * torch.exp(-((mgrid - mean) / std) ** 2 / 2)
+            1
+            / (std * math.sqrt(2 * math.pi))
+            * torch.exp(-(((mgrid - mean) / std) ** 2) / 2)
         )
 
     # Make sure sum of values in gaussian kernel equals 1.
