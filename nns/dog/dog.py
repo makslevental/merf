@@ -1,4 +1,5 @@
 import os
+import time
 from os.path import expanduser
 from pathlib import Path
 
@@ -61,27 +62,40 @@ def torch_dog_img_test():
 
 
 def main():
+    print(DATA_DIR)
     plif_dataset = PLIF(plif_dir=DATA_DIR)
     plif_dataloader = torch.utils.data.DataLoader(
-        plif_dataset, batch_size=1, pin_memory=PIN_MEMORY, num_workers=4
+        plif_dataset, batch_size=1, pin_memory=PIN_MEMORY, num_workers=1
     )
-    for t in np.linspace(0.01, 0.1, 10):
-        for i, blobs in enumerate(
-            torch_dog(
-                plif_dataloader,
-                min_sigma=1,
-                max_sigma=20,
-                overlap=0.9,
-                threshold=t,
-                prune=True,
-            )
-        ):
-            print("blobs: ", len(blobs))
-            make_circles_fig(plif_dataset[i].squeeze(0).numpy(), blobs).show()
-            counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins=256)
-            plt.show()
-            break
-
+    times = []
+    for s in np.arange(2, 50):
+        s = 50
+        for t in np.linspace(.012, 0.012, 1):
+            t = 0.005
+            start = time.monotonic()
+            for i, blobs in enumerate(
+                torch_dog(
+                    plif_dataloader,
+                    min_sigma=1,
+                    max_sigma=20,
+                    overlap=0.9,
+                    threshold=t,
+                    prune=True,
+                    sigma_bins=s
+                )
+            ):
+                times.append((s, time.monotonic()-start))
+                print(s, time.monotonic()-start)
+                print("blobs: ", len(blobs))
+                make_circles_fig(plif_dataset[i].squeeze(0).numpy(), blobs).show()
+                # make_circles_fig(plif_dataset[i].squeeze(0).numpy(), blobs).savefig(f"dogs/{t}.png")
+                counts, bin_centers, _ = plt.hist([r for (_, _, r) in blobs], bins=100)
+                plt.xlabel("r")
+                plt.ylabel("count")
+                plt.title("droplet radii distribution")
+                plt.show()
+                # break
+    print(times)
 
 if __name__ == "__main__":
     # torch_dog_img_test()
