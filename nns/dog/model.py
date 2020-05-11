@@ -5,36 +5,40 @@ from functools import partial
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
+from opt_einsum import contract
 from scipy import spatial
 from skimage import img_as_float, io
 from skimage.feature.blob import _blob_overlap
 from torch import nn
 
 from sk_image.blob import make_circles_fig
+
+# noinspection PyUnresolvedReferences
 from sk_image.preprocess import make_figure
 
 
 class DifferenceOfGaussians(nn.Module):
     def __init__(
         self,
+        *,
         img_height,
         img_width,
-        *,
         max_sigma=10,
         min_sigma=1,
         sigma_bins=50,
         truncate=5.0,
-        footprint=3,
+        maxpool_footprint=3,
         threshold=0.001,
         prune=True,
         overlap=0.5
     ):
         super(DifferenceOfGaussians, self).__init__()
-        self.footprint = footprint
         self.prune = prune
         self.overlap = overlap
         self.threshold = threshold
+        self.img_height = img_height
+        self.img_width = img_width
+
         self.signal_ndim = 2
 
         self.sigma_list = np.linspace(
@@ -46,51 +50,58 @@ class DifferenceOfGaussians(nn.Module):
         self.register_buffer("sigmas", sigmas)
         print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
 
-        # max is performed in order to accommodate largest filter
-        max_radius = int(truncate * max(sigmas) + 0.5)
-        max_width = 2 * max_radius + 1
-        # Compute convolution using fft.
-        padded_size_1 = img_height + max_width - 1
-        padded_size_2 = img_width + max_width - 1
-        # Round up to next power of 2 for cheaper fft.
-        self.fast_ftt_size_1 = 2 ** math.ceil(math.log2(padded_size_1))
-        self.fast_ftt_size_2 = 2 ** math.ceil(math.log2(padded_size_2))
+        # accommodate largest filter
+        self.max_radius = int(truncate * max(sigmas) + 0.5)
+        max_bandwidth = 2 * self.max_radius + 1
+        # pad fft to prevent aliasing
+        padded_height = img_height + max_bandwidth - 1
+        padded_width = img_width + max_bandwidth - 1
+        # round up to next power of 2 for cheaper fft.
+        self.fft_height = 2 ** math.ceil(math.log2(padded_height))
+        self.fft_width = 2 ** math.ceil(math.log2(padded_width))
+        self.pad_input = nn.ConstantPad2d(
+            (0, self.fft_width - img_width, 0, self.fft_height - img_height), 0
+        )
+
         self.f_gaussian_pyramid = []
-        self.kernel_paddings = []
         for i, s in enumerate(sigmas):
             radius = int(truncate * s + 0.5)
             width = 2 * radius + 1
             kernel = torch_gaussian_kernel(width=width, sigma=s.item())
-            self.kernel_paddings.append(radius)
-            padded_kernel = F.pad(
-                kernel,
-                # pad last dim by (0, fast_ftt_size_2 - m2) and 2nd to last by ...
-                (0, self.fast_ftt_size_2 - width, 0, self.fast_ftt_size_1 - width),
-            )
+
+            # this is to align all of the kernels so that the eventual fft shifts a fixed amount
+            center_pad_size = self.max_radius - radius
+            if center_pad_size > 0:
+                centered_kernel = nn.ConstantPad2d(center_pad_size, 0)(kernel)
+            else:
+                centered_kernel = kernel
+
+            padded_kernel = nn.ConstantPad2d(
+                (0, self.fft_width - max_bandwidth, 0, self.fft_height - max_bandwidth),
+                0,
+            )(centered_kernel)
+
             f_kernel = torch.rfft(
                 padded_kernel, signal_ndim=self.signal_ndim, onesided=True
             )
-            self.f_gaussian_pyramid.append(f_kernel)
-        self.f_gaussian_pyramid = torch.stack(self.f_gaussian_pyramid, dim=0)
 
-        self.padding = (self.footprint - 1) // 2
-        if not isinstance(self.footprint, int):
-            self.footprint = tuple(self.footprint)
-            self.padding = tuple(self.padding)
+            self.f_gaussian_pyramid.append(f_kernel)
+        self.f_gaussian_pyramid = nn.Parameter(
+            torch.stack(self.f_gaussian_pyramid, dim=0)
+        )
 
         self.max_pool = nn.MaxPool3d(
-            kernel_size=self.footprint, padding=self.padding, stride=1
+            kernel_size=maxpool_footprint,
+            padding=(maxpool_footprint - 1) // 2,
+            stride=1,
         )
 
     def forward(self, input: torch.Tensor):
-        m1, m2 = list(input.size())[-self.signal_ndim :]
-        padded_input = F.pad(
-            input,
-            # pad last dim by (0, fast_ftt_size_2 - m2) and 2nd to last by ...
-            (0, self.fast_ftt_size_2 - m2, 0, self.fast_ftt_size_1 - m1),
-        )
-        f_input = torch.rfft(padded_input, signal_ndim=self.signal_ndim, onesided=True)
+        img_height, img_width = list(input.size())[-self.signal_ndim :]
+        assert (img_height, img_width) == (self.img_height, self.img_width)
 
+        padded_input = self.pad_input(input)
+        f_input = torch.rfft(padded_input, signal_ndim=self.signal_ndim, onesided=True)
         f_gaussian_images = comp_mul(self.f_gaussian_pyramid, f_input)
         gaussian_images = torch.irfft(
             f_gaussian_images,
@@ -98,10 +109,14 @@ class DifferenceOfGaussians(nn.Module):
             onesided=True,
             signal_sizes=padded_input.shape[1:],
         )
-        gs = torch.zeros(*(gaussian_images.shape[:-self.signal_ndim]+input.shape[-self.signal_ndim:]))
-        for i, radius in enumerate(self.kernel_paddings):
-            gs[:, i] = gaussian_images[:, i, radius : m1 + radius, radius : m2 + radius]
-        gaussian_images = gs
+
+        # fft induces a shift
+        gaussian_images = gaussian_images[
+            :,  # batch dimension
+            :,  # filter dimension
+            self.max_radius : self.img_height + self.max_radius,
+            self.max_radius : self.img_width + self.max_radius,
+        ]
 
         # computing difference between two successive Gaussian blurred images
         # multiplying with standard deviation provides scale invariance
@@ -122,9 +137,8 @@ class DifferenceOfGaussians(nn.Module):
         sigmas_of_peaks = self.sigma_list[coords[:, 0]]
         # Remove sigma index and replace with sigmas
         cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
-        print("preprune blobs: ", len(cds))
         if self.prune:
-            blobs = prune_blobs(cds, self.overlap, local_maxima, sigma_dim=1)
+            blobs = prune_blobs(cds, self.overlap, local_maxima=local_maxima, sigma_dim=1)
         else:
             blobs = cds
 
@@ -155,7 +169,7 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
 
 
 def comp_mul(a, b):
-    op = partial(torch.einsum, "fxy,bxy->bfxy")
+    op = partial(contract, "fxy,bxy->bfxy")
     ar, ai = a.unbind(-1)
     br, bi = b.unbind(-1)
     return torch.stack([op(ar, br) - op(ai, bi), op(ar, bi) + op(ai, br)], dim=-1)
@@ -186,23 +200,34 @@ def prune_blobs(blobs_array, overlap, local_maxima=None, *, sigma_dim=1):
 
 
 def test():
-    img = img_as_float(
-        io.imread(
-            "/Users/maksim/dev_projects/merf/simulation/screenshot.png", as_gray=True
+    with torch.no_grad():
+        img = img_as_float(
+            io.imread(
+                "/Users/maksim/dev_projects/merf/simulation/screenshot.png",
+                as_gray=True,
+            )
         )
-    )
-    img_height, img_width = img.shape
-    plt.imshow(img)
-    plt.show()
-    img = torch.from_numpy(img)
-    imgs = torch.stack([img, img, img], dim=0)
-    # imgs = torch.ones_like(imgs)
-    dog = DifferenceOfGaussians(img_height, img_width, sigma_bins=20, threshold=0.1)
-    masks, local_maximas = dog(imgs)
-    print(len(masks))
-    for m, l in zip(masks, local_maximas):
-        blobs = dog.make_blobs(m, l)
-        make_circles_fig(img.numpy(), blobs).show()
+        img_height, img_width = img.shape
+        img = torch.from_numpy(img)
+
+        # img_height, img_width = (1000, 502)
+        # img = torch.ones((img_height, img_width))
+
+        plt.imshow(img)
+        plt.show()
+        imgs = torch.stack([img, img, img], dim=0)
+
+        dog = DifferenceOfGaussians(
+            img_height=img_height, img_width=img_width, sigma_bins=20, threshold=0.1
+        )
+        for p in dog.parameters():
+            p.requires_grad = False
+        dog.eval()
+        masks, local_maximas = dog(imgs)
+        print(len(masks))
+        for m, l in zip(masks, local_maximas):
+            blobs = dog.make_blobs(m, l)
+            make_circles_fig(img.numpy(), blobs).show()
 
 
 if __name__ == "__main__":
