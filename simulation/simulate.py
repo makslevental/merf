@@ -8,7 +8,10 @@ from skimage.filters import gaussian
 from skimage.io import imread
 from skimage.util import random_noise
 
+# noinspection PyUnresolvedReferences
 from sk_image.blob import make_circles_fig
+
+# noinspection PyUnresolvedReferences
 from sk_image.preprocess import make_figure
 
 
@@ -84,10 +87,10 @@ if __name__ == "__main__":
 
     blobs = []
     for (y, x, _z), r in V:
-        blobs.append((x,y,r))
+        blobs.append((x, y, r))
         mask = create_circular_mask(window_size, window_size, (y, x), r * 0.9)
         noisy[mask] = 0
     noise_strength = 2
-    res = gaussian(2*noisy + im, sigma=1)
+    res = gaussian(2 * noisy + im, sigma=1)
     # make_circles_fig(res, np.array(blobs)).show()
-    Image.fromarray((res*255).astype(np.uint8)).save("screenshot.png")
+    Image.fromarray((res * 255).astype(np.uint8)).save("screenshot.png")

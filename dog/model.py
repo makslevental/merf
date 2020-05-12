@@ -1,6 +1,7 @@
 import math
 import numbers
 from functools import partial
+from typing import Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,19 +19,62 @@ from sk_image.preprocess import make_figure
 
 
 class DifferenceOfGaussians(nn.Module):
+    """DoG filter.
+
+    Apply a stack of gaussian filters to the input, take mutual differences,
+    then find local maxima using a max filter heuristic.
+
+    Attributes
+    ----------
+    threshold : minimum peak strength to consider
+    prune: remove overlapping blobs
+    overlap: minimum overlap between two blobs such that one will be pruned
+    img_height: obv
+    img_width: obv
+    signal_ndim: last `signal_ndim` dimensions are the image
+    sigma_list: [min_sigma, ... ,max_sigma] of length `sigma_bins`
+    max_radius: maximum gaussian kernel radius (proportional to max_sigma)
+    fft_height: fft size
+    fft_width: fft size
+    pad_input: padding functions that pads input out to fft size
+    f_gaussian_pyramid: fourier space representation of gaussian kernel stack
+    max_pool: max_pool filter for finding local maxima
+
+    Parameters
+    ----------
+    min_sigma: minimum sigma that will be recognized
+    max_sigma: maximum sigma that will be recognized
+    sigma_bins: number of sigma between (inclusive) min/max sigma recognized
+    truncate: width scale factor for the mesh for the gaussian kernels
+    maxpool_footprint: maxpool kernel size. determines nearest blobs
+    img_height:
+    img_width:
+    threshold:
+    prune:
+    overlap:
+
+    Methods
+    -------
+    forward(input):
+        forward pass i.e. perform the filtering. output blob center mask
+    make_blobs(mask, local_maxima=None):
+        make (x,y,r) from blob mask
+
+    """
+
     def __init__(
         self,
         *,
-        img_height,
-        img_width,
-        max_sigma=10,
-        min_sigma=1,
-        sigma_bins=50,
-        truncate=5.0,
-        maxpool_footprint=3,
-        threshold=0.001,
-        prune=True,
-        overlap=0.5
+        img_height: int,
+        img_width: int,
+        min_sigma: int = 1,
+        max_sigma: int = 10,
+        sigma_bins: int = 50,
+        truncate: float = 5.0,
+        maxpool_footprint: int = 3,
+        threshold: float = 0.001,
+        prune: bool = True,
+        overlap: float = 0.5
     ):
         super(DifferenceOfGaussians, self).__init__()
         self.prune = prune
@@ -38,7 +82,6 @@ class DifferenceOfGaussians(nn.Module):
         self.threshold = threshold
         self.img_height = img_height
         self.img_width = img_width
-
         self.signal_ndim = 2
 
         self.sigma_list = np.linspace(
@@ -64,6 +107,11 @@ class DifferenceOfGaussians(nn.Module):
         )
 
         self.f_gaussian_pyramid = []
+        kernel_pad = nn.ConstantPad2d(
+            # left, right, top, bottom
+            (0, self.fft_width - max_bandwidth, 0, self.fft_height - max_bandwidth),
+            0,
+        )
         for i, s in enumerate(sigmas):
             radius = int(truncate * s + 0.5)
             width = 2 * radius + 1
@@ -76,18 +124,15 @@ class DifferenceOfGaussians(nn.Module):
             else:
                 centered_kernel = kernel
 
-            padded_kernel = nn.ConstantPad2d(
-                (0, self.fft_width - max_bandwidth, 0, self.fft_height - max_bandwidth),
-                0,
-            )(centered_kernel)
+            padded_kernel = kernel_pad(centered_kernel)
 
             f_kernel = torch.rfft(
                 padded_kernel, signal_ndim=self.signal_ndim, onesided=True
             )
-
             self.f_gaussian_pyramid.append(f_kernel)
+
         self.f_gaussian_pyramid = nn.Parameter(
-            torch.stack(self.f_gaussian_pyramid, dim=0)
+            torch.stack(self.f_gaussian_pyramid, dim=0), requires_grad=False
         )
 
         self.max_pool = nn.MaxPool3d(
@@ -96,7 +141,7 @@ class DifferenceOfGaussians(nn.Module):
             stride=1,
         )
 
-    def forward(self, input: torch.Tensor):
+    def forward(self, input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         img_height, img_width = list(input.size())[-self.signal_ndim :]
         assert (img_height, img_width) == (self.img_height, self.img_width)
 
@@ -110,7 +155,7 @@ class DifferenceOfGaussians(nn.Module):
             signal_sizes=padded_input.shape[1:],
         )
 
-        # fft induces a shift
+        # fft induces a shift so needs to be undone
         gaussian_images = gaussian_images[
             :,  # batch dimension
             :,  # filter dimension
@@ -127,7 +172,22 @@ class DifferenceOfGaussians(nn.Module):
         mask = (local_maxima == dog_images) & (dog_images > self.threshold)
         return mask, local_maxima
 
-    def make_blobs(self, mask, local_maxima=None):
+    def make_blobs(
+        self, mask: torch.Tensor, local_maxima: torch.Tensor = None
+    ) -> np.ndarray:
+        """Make blobs from mask produced by forward pass
+
+        Parameters
+        ----------
+        mask: nonzero peaks after filtering
+        local_maxima: peak values at nonzero positions in the mask. optional
+
+        Returns
+        -------
+        blobs: blobs in the image
+
+        """
+
         if local_maxima is not None:
             local_maxima = local_maxima[mask].detach().cpu().numpy()
         coords = mask.nonzero().cpu().numpy()
@@ -138,7 +198,12 @@ class DifferenceOfGaussians(nn.Module):
         # Remove sigma index and replace with sigmas
         cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
         if self.prune:
-            blobs = prune_blobs(cds, self.overlap, local_maxima=local_maxima, sigma_dim=1)
+            blobs = prune_blobs(
+                blobs_array=cds,
+                overlap=self.overlap,
+                local_maxima=local_maxima,
+                sigma_dim=1,
+            )
         else:
             blobs = cds
 
@@ -146,7 +211,23 @@ class DifferenceOfGaussians(nn.Module):
         return blobs
 
 
-def torch_gaussian_kernel(width=21, sigma=3, dim=2):
+def torch_gaussian_kernel(
+    width: int = 21, sigma: int = 3, dim: int = 2
+) -> torch.Tensor:
+    """Gaussian kernel
+
+    Parameters
+    ----------
+    width: bandwidth of the kernel
+    sigma: std of the kernel
+    dim: dimensions of the kernel (images -> 2)
+
+    Returns
+    -------
+    kernel : gaussian kernel
+
+    """
+
     if isinstance(width, numbers.Number):
         width = [width] * dim
     if isinstance(sigma, numbers.Number):
@@ -168,14 +249,67 @@ def torch_gaussian_kernel(width=21, sigma=3, dim=2):
     return kernel
 
 
-def comp_mul(a, b):
-    op = partial(contract, "fxy,bxy->bfxy")
-    ar, ai = a.unbind(-1)
-    br, bi = b.unbind(-1)
-    return torch.stack([op(ar, br) - op(ai, bi), op(ar, bi) + op(ai, br)], dim=-1)
+def comp_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """Complex multiplies two complex 3d tensors
+
+    x = (x_real, x_im)
+    y = (y_real, y_im)
+    x*y = (x_real*y_real - x_im*y_im, x_real*y_im + x_im*y_real)
+
+    Last dimension is x2 with x[..., 0] real and x[..., 1] complex.
+    Dimensions (-3,-2) must be equal of both a and b must be the same.
+
+    Examples
+    ________
+    >>> f_filters = torch.rand((20, 1024, 1024, 2))
+    >>> f_imgs = torch.rand((5, 1024, 1024, 2))
+    >>> f_filtered_imgs = comp_mul(f_filters, f_imgs)
+
+    Parameters
+    ----------
+    x : Last dimension is (a,b) of a+ib
+    y : Last dimension is (a,b) of a+ib
+
+    Returns
+    -------
+    z : x*y
+
+    """
+
+    # hadamard product of every filter against every batch image
+    op = partial(contract, "fuv,buv->bfuv")
+    assert x.shape[-1] == y.shape[-1] == 2
+    x_real, x_im = x.unbind(-1)
+    y_real, y_im = y.unbind(-1)
+    z = torch.stack(
+        [op(x_real, y_real) - op(x_im, y_im), op(x_real, y_im) + op(x_im, y_real)],
+        dim=-1,
+    )
+    return z
 
 
-def prune_blobs(blobs_array, overlap, local_maxima=None, *, sigma_dim=1):
+def prune_blobs(
+    *,
+    blobs_array: np.ndarray,
+    overlap: float,
+    local_maxima: np.ndarray = None,
+    sigma_dim: int = 1
+) -> np.ndarray:
+    """Find non-overlapping blobs
+
+    Parameters
+    ----------
+    blobs_array: n x 3 where first two cols are x,y coords and third col is blob radius
+    overlap: minimum area overlap in order to prune one of the blobs
+    local_maxima: optional maxima values at peaks. if included then stronger maxima will be chosen on overlap
+    sigma_dim: which column in blobs_array has the radius
+
+    Returns
+    -------
+    blobs_array: non-overlapping blobs
+
+    """
+
     sigma = blobs_array[:, -sigma_dim:].max()
     distance = 2 * sigma * math.sqrt(blobs_array.shape[1] - sigma_dim)
     tree = spatial.cKDTree(blobs_array[:, :-sigma_dim])
@@ -187,11 +321,13 @@ def prune_blobs(blobs_array, overlap, local_maxima=None, *, sigma_dim=1):
         blob1, blob2 = blobs_array[i], blobs_array[j]
         blob_overlap = _blob_overlap(blob1, blob2, sigma_dim=sigma_dim)
         if blob_overlap > overlap:
+            # if local maxima then pick stronger maximum
             if local_maxima is not None:
                 if local_maxima[i] > local_maxima[j]:
                     blob2[-1] = 0
                 else:
                     blob1[-1] = 0
+            # else take average
             else:
                 blob2[-1] = (blob1[-1] + blob2[-1]) / 2
                 blob1[-1] = 0

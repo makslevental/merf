@@ -1,16 +1,13 @@
 import csv
 import glob
-import os
 from pathlib import Path
 
 import numpy as np
 import torch
 from skimage import io, img_as_float
 from skimage.filters import gaussian
-from torch import nn
 from torch.utils.data import Dataset
 
-from sk_image.blob import make_circles_fig
 from sk_image.enhance_contrast import stretch_composite_histogram
 
 
