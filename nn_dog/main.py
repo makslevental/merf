@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from dog.data import Trivial, PLIF
-from dog.model import DifferenceOfGaussians
+from nn_dog.data import Trivial, PLIF
+from nn_dog.model import DifferenceOfGaussians
 
 # noinspection PyUnresolvedReferences
 from sk_image.blob import make_circles_fig
