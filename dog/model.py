@@ -84,10 +84,11 @@ class DifferenceOfGaussians(nn.Module):
         self.img_width = img_width
         self.signal_ndim = 2
 
-        self.sigma_list = np.linspace(
-            start=min_sigma,
-            stop=max_sigma + (max_sigma - min_sigma) / sigma_bins,
-            num=sigma_bins + 1,
+        # sigma_ratio such that min_sigma*(sigma_ratio**sigma_bins) > max_sigma
+        # i.e. sigma_ratio**sigma_bins > max_sigma/min_sigma
+        sigma_ratio = (max_sigma / min_sigma) ** (1 / (sigma_bins-1))
+        self.sigma_list = np.array(
+            [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
         )
         sigmas = torch.from_numpy(self.sigma_list)
         self.register_buffer("sigmas", sigmas)
