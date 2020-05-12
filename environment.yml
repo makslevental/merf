@@ -11,7 +11,7 @@ dependencies:
   - opt_einsum
   - pytorch 
   - torchvision 
-#  - cudatoolkit=10.1
+  - cudatoolkit=10.1
   - pip
   - pip:
       - black
