@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from nns.dog.data import Trivial, PLIF
-from nns.dog.model import DifferenceOfGaussians
+from dog.data import Trivial, PLIF
+from dog.model import DifferenceOfGaussians
 from sk_image.blob import make_circles_fig
 from sk_image.preprocess import make_figure
 

@@ -86,7 +86,7 @@ class PLIF(Dataset):
 
 
 def test():
-    from nns.dog.model import DifferenceOfGaussians
+    from dog.model import DifferenceOfGaussians
 
     sigma_bins = 50
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
