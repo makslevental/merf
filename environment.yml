@@ -16,4 +16,5 @@ dependencies:
   - pip:
       - black
       - jupyter_contrib_nbextensions
-      - glumpy  
+      - glumpy
+      - tikzplotlib

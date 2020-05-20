@@ -6,6 +6,7 @@ import scipy.stats as st
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import convolve as convolve
 from skimage.util import random_noise
+import tikzplotlib
 
 
 def gkern(kernlen=21, nsig=3):
@@ -323,21 +324,30 @@ def maxes():
         0.10137016657739878,
         0.09703307546442375,
     ]
-    for i in range(len(a)):
-        plt.clf()
-        plt.plot(a)
-        plt.axvline(x=i, linestyle="--", color="black")
-        plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/a{i:02d}.png")
-    for i in range(len(b)):
-        plt.clf()
-        plt.plot(b)
-        plt.axvline(x=i, linestyle="--", color="black")
-        plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/b{i:02d}.png")
-    for i in range(len(c)):
-        plt.clf()
-        plt.plot(c)
-        plt.axvline(x=i, linestyle="--", color="black")
-        plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/c{i:02d}.png")
+    plt.plot(a, label="a")
+    plt.plot(b, label="b")
+    plt.plot(c, label="c")
+    plt.xlabel("scale")
+    plt.legend()
+    plt.yticks([])
+    # plt.show()
+    tikzplotlib.save("scalespace.tex")
+    # for i in range(len(a)):
+    #     plt.clf()
+    #     plt.plot(a)
+    #     plt.axvline(x=i, linestyle="--", color="black")
+    #     plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/a{i:02d}.png")
+    # for i in range(len(b)):
+    #     plt.clf()
+    #     plt.plot(b)
+    #     plt.axvline(x=i, linestyle="--", color="black")
+    #     plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/b{i:02d}.png")
+    # for i in range(len(c)):
+    #     plt.clf()
+    #     plt.plot(c)
+    #     plt.axvline(x=i, linestyle="--", color="black")
+    #     plt.savefig(f"/Users/maksim/dev_projects/merf/nns/dog/dogs/c{i:02d}.png")
+
 
 
 if __name__ == "__main__":

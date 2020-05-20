@@ -86,13 +86,19 @@ class DifferenceOfGaussians(nn.Module):
 
         # sigma_ratio such that min_sigma*(sigma_ratio**sigma_bins) > max_sigma
         # i.e. sigma_ratio**sigma_bins > max_sigma/min_sigma
-        sigma_ratio = (max_sigma / min_sigma) ** (1 / (sigma_bins-1))
-        self.sigma_list = np.array(
-            [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
+        # sigma_ratio = (max_sigma / min_sigma) ** (1 / (sigma_bins-1))
+        # self.sigma_list = np.array(
+        #     [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
+        # )
+        self.sigma_list = np.concatenate(
+            [
+                np.linspace(min_sigma, max_sigma, sigma_bins),
+                [max_sigma + (max_sigma - min_sigma) / (sigma_bins - 1)],
+            ]
         )
         sigmas = torch.from_numpy(self.sigma_list)
         self.register_buffer("sigmas", sigmas)
-        print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
+        # print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
 
         # accommodate largest filter
         self.max_radius = int(truncate * max(sigmas) + 0.5)

@@ -30,7 +30,7 @@ def create_circular_mask(h, w, center=None, radius=None):
 
 if __name__ == "__main__":
     window_size = 1000
-    V = np.zeros(10, [("center", np.float32, 3), ("radius", np.float32, 1)])
+    V = np.zeros(100, [("center", np.float32, 3), ("radius", np.float32, 1)])
     cluster_mean = np.random.uniform(window_size // 4, 3 * window_size // 4, size=2)
     cluster_std = np.diag(
         np.random.uniform((window_size // 8) ** 2, (window_size // 4) ** 2, size=2)
@@ -45,7 +45,8 @@ if __name__ == "__main__":
         writer = csv.writer(csvfile)
         writer.writerow(["x", "y", "z", "r"])
         for ((x, y, z), r) in V:
-            writer.writerow([x, y, z, r])
+            if (0,0) <= (x,y) <= (window_size, window_size):
+                writer.writerow([x, y, z, r])
 
     app.use("glfw")
     window = app.Window(window_size, window_size)
