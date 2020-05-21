@@ -6,7 +6,7 @@ This repository contains code associated with image processing for the [Combusti
 
 Primary novelty is in an implementation of [Difference of Gaussians](https://en.wikipedia.org/wiki/Difference_of_Gaussians) on GPU using PyTorch primitives
 
-![image](https://user-images.githubusercontent.com/5657668/81741979-5cf30d00-946d-11ea-950f-534f3fe8b6b8.png)
+![image](https://user-images.githubusercontent.com/5657668/82606318-de8d1e00-9b84-11ea-9968-30d46cc53b21.png)
 
 Final result is to produce volume distribution for [PLIF](https://en.wikipedia.org/wiki/Planar_laser-induced_fluorescence) images 
 

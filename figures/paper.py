@@ -4,6 +4,7 @@ import matplotlib as mpl
 import pandas as pd
 import tikzplotlib
 import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 
 
 n_lines = 29
@@ -26,14 +27,16 @@ for i in range(2, 32):
     ax.plot(cpu,"--", c=cmap.to_rgba(i + 1))
     ax.plot(gpu, c=cmap.to_rgba(i + 1))
 
-ax.set_yscale('logit')
+# ax.set_yscale('logit')
 ax.set_title("GPU vs. CPU performance")
 ax.set_xticks([0,3,10,20,30,40,50])
 ax.set_ylabel("time (s)")
 ax.set_xlabel("filters")
 fig.colorbar(cmap, ticks=c, label="max radius")
-red_patch = mpatches.Patch(color='red', label='The red data', linestyle="--")
-blue_patch = mpatches.Patch(color='blue', label='The blue data')
-fig.legend(handles=[red_patch, blue_patch], loc='upper left', bbox_to_anchor=(0.1, .9))
+
+
+cpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle='--')
+gpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle='-')
+fig.legend([cpuline, gpuline], ["cpu", "gpu"], loc='upper left', bbox_to_anchor=(0.1, .9))
 fig.show()
 # tikzplotlib.save("test.tex", figure=fig)
