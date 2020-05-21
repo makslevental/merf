@@ -17,7 +17,7 @@ def find_nearest(array, value):
     return idx
 
 
-class Trivial(Dataset):
+class SimulPLIF(Dataset):
     def __init__(
         self, img_path: Path, num_repeats=10, min_sigma=1, max_sigma=40, sigma_bins=50
     ):

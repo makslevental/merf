@@ -18,7 +18,97 @@ from sk_image.blob import make_circles_fig
 from sk_image.preprocess import make_figure
 
 
-class DifferenceOfGaussians(nn.Module):
+class DifferenceOfGaussiansStandardConv(nn.Module):
+    def __init__(
+        self,
+        *,
+        max_sigma=10,
+        min_sigma=1,
+        sigma_bins=50,
+        truncate=5.0,
+        footprint=3,
+        threshold=0.001,
+        prune=True,
+        overlap=0.5,
+    ):
+        super().__init__()
+
+        self.footprint = footprint
+        self.prune = prune
+        self.overlap = overlap
+        self.threshold = threshold
+
+        self.sigma_list = np.concatenate(
+            [
+                np.linspace(min_sigma, max_sigma, sigma_bins),
+                [max_sigma + (max_sigma - min_sigma) / (sigma_bins - 1)],
+            ]
+        )
+        sigmas = torch.from_numpy(self.sigma_list)
+        self.register_buffer("sigmas", sigmas)
+
+        # max is performed in order to accommodate largest filter
+        self.max_radius = int(truncate * max(sigmas) + 0.5)
+        self.gaussian_pyramid = nn.Conv2d(
+            1,  # greyscale input
+            sigma_bins + 1,  # sigma+1 filters so that there are sigma dogs
+            2 * self.max_radius
+            + 1,  # conv stack should be as wide as widest gaussian filter
+            bias=False,
+            padding=self.max_radius,  # hence no shrink of image
+            padding_mode="zeros",
+        )
+
+        for i, s in enumerate(sigmas):
+            radius = int(truncate * s + 0.5)
+            kernel = torch_gaussian_kernel(width=2 * radius + 1, sigma=s.item())
+            pad_size = self.max_radius - radius
+            if pad_size > 0:
+                padded_kernel = nn.ConstantPad2d(pad_size, 0)(kernel)
+            else:
+                padded_kernel = kernel
+            self.gaussian_pyramid.weight.data[i].copy_(padded_kernel)
+
+        self.padding = (self.footprint - 1) // 2
+        if not isinstance(self.footprint, int):
+            self.footprint = tuple(self.footprint)
+            self.padding = tuple(self.padding)
+
+        self.max_pool = nn.MaxPool3d(
+            kernel_size=self.footprint, padding=self.padding, stride=1
+        )
+
+    def forward(self, input: torch.Tensor):
+        gaussian_images = self.gaussian_pyramid(input)
+        # computing difference between two successive Gaussian blurred images
+        # multiplying with standard deviation provides scale invariance
+        dog_images = (gaussian_images[0][:-1] - gaussian_images[0][1:]) * (
+            self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
+        )
+        local_maxima = self.max_pool(dog_images.unsqueeze(0)).squeeze(0)
+        mask = (local_maxima == dog_images) & (dog_images > self.threshold)
+        return mask, local_maxima
+
+    def make_blobs(self, mask, local_maxima=None):
+        if local_maxima is not None:
+            local_maxima = local_maxima[mask].detach().cpu().numpy()
+        coords = mask.nonzero().cpu().numpy()
+        cds = coords.astype(np.float64)
+        # translate final column of cds, which contains the index of the
+        # sigma that produced the maximum intensity value, into the sigma
+        sigmas_of_peaks = self.sigma_list[coords[:, 0]]
+        # Remove sigma index and replace with sigmas
+        cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
+        if self.prune:
+            blobs = prune_blobs(cds, self.overlap, local_maxima, sigma_dim=1)
+        else:
+            blobs = cds
+
+        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
+        return blobs
+
+
+class DifferenceOfGaussiansFFT(nn.Module):
     """DoG filter.
 
     Apply a stack of gaussian filters to the input, take mutual differences,
@@ -74,9 +164,9 @@ class DifferenceOfGaussians(nn.Module):
         maxpool_footprint: int = 3,
         threshold: float = 0.001,
         prune: bool = True,
-        overlap: float = 0.5
+        overlap: float = 0.5,
     ):
-        super(DifferenceOfGaussians, self).__init__()
+        super(DifferenceOfGaussiansFFT, self).__init__()
         self.prune = prune
         self.overlap = overlap
         self.threshold = threshold
@@ -84,12 +174,6 @@ class DifferenceOfGaussians(nn.Module):
         self.img_width = img_width
         self.signal_ndim = 2
 
-        # sigma_ratio such that min_sigma*(sigma_ratio**sigma_bins) > max_sigma
-        # i.e. sigma_ratio**sigma_bins > max_sigma/min_sigma
-        # sigma_ratio = (max_sigma / min_sigma) ** (1 / (sigma_bins-1))
-        # self.sigma_list = np.array(
-        #     [min_sigma * (sigma_ratio ** i) for i in range(sigma_bins + 1)]
-        # )
         self.sigma_list = np.concatenate(
             [
                 np.linspace(min_sigma, max_sigma, sigma_bins),
@@ -300,7 +384,7 @@ def prune_blobs(
     blobs_array: np.ndarray,
     overlap: float,
     local_maxima: np.ndarray = None,
-    sigma_dim: int = 1
+    sigma_dim: int = 1,
 ) -> np.ndarray:
     """Find non-overlapping blobs
 
@@ -360,7 +444,7 @@ def test():
         plt.show()
         imgs = torch.stack([img, img, img], dim=0)
 
-        dog = DifferenceOfGaussians(
+        dog = DifferenceOfGaussiansFFT(
             img_height=img_height, img_width=img_width, sigma_bins=20, threshold=0.1
         )
         for p in dog.parameters():
