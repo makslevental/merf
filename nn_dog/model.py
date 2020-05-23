@@ -1,17 +1,20 @@
 import math
 import numbers
+import os
 from functools import partial
+from pathlib import Path
 from typing import Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from opt_einsum import contract
 from scipy import spatial
-from skimage import img_as_float, io
 from skimage.feature.blob import _blob_overlap
 from torch import nn
+from torch.utils.data import DataLoader
 
+from nn_dog import PIN_MEMORY
+from nn_dog.data import SimulPLIF
 from sk_image.blob import make_circles_fig
 
 # noinspection PyUnresolvedReferences
@@ -426,36 +429,32 @@ def prune_blobs(
     return blobs_array[blobs_array[:, -1] > 0]
 
 
-def test():
+def main():
     with torch.no_grad():
-        img = img_as_float(
-            io.imread(
-                "/Users/maksim/dev_projects/merf/simulation/screenshot.png",
-                as_gray=True,
-            )
+        # image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+        #     "../simulation/screenshot.png"
+        # )
+
+        image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+            "../data/RawData/R109_60deg_6-8-25_OHP-LS000252.T000.D000.P000.H000.PLIF1.TIF"
         )
-        img_height, img_width = img.shape
-        img = torch.from_numpy(img)
+        screenshot = SimulPLIF(img_path=image_pth, num_repeats=1, load_truth=False)
+        img_height, img_width = screenshot[0].squeeze(0).numpy().shape
 
-        # img_height, img_width = (1000, 502)
-        # img = torch.ones((img_height, img_width))
-
-        plt.imshow(img)
-        plt.show()
-        imgs = torch.stack([img, img, img], dim=0)
+        train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
+        img_tensor = next(iter(train_dataloader))
 
         dog = DifferenceOfGaussiansFFT(
-            img_height=img_height, img_width=img_width, sigma_bins=20, threshold=0.1
+            img_height=img_height, img_width=img_width, sigma_bins=20, threshold=0.012
         )
         for p in dog.parameters():
             p.requires_grad = False
         dog.eval()
-        masks, local_maximas = dog(imgs)
-        print(len(masks))
+        masks, local_maximas = dog(img_tensor)
         for m, l in zip(masks, local_maximas):
             blobs = dog.make_blobs(m, l)
-            make_circles_fig(img.numpy(), blobs).show()
+            make_circles_fig(screenshot[0].numpy(), blobs).show()
 
 
 if __name__ == "__main__":
-    test()
+    main()
