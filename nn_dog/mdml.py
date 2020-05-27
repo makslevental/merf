@@ -204,6 +204,13 @@ class DifferenceOfGaussiansFFT(nn.Module):
         blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
 
+    def predict(self, input: torch.Tensor):
+        masks, local_maximas = self.forward(input)
+        for m, l in zip(masks, local_maximas):
+            blobs = self.make_blobs(m, l)
+            yield blobs
+
+
 def torch_gaussian_kernel(
     width: int = 21, sigma: int = 3, dim: int = 2
 ) -> torch.Tensor:
@@ -326,4 +333,3 @@ def prune_blobs(
                 blob1[-1] = 0
 
     return blobs_array[blobs_array[:, -1] > 0]
-
