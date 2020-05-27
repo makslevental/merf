@@ -164,7 +164,10 @@ class DifferenceOfGaussiansFFT(nn.Module):
         )
         local_maxima = self.max_pool(dog_images)
         mask = (local_maxima == dog_images) & (dog_images > self.threshold)
-        return mask, local_maxima
+        for m, l in zip(mask, local_maxima):
+            blobs = self.make_blobs(m, l)
+            # yield blobs
+            return blobs
 
     def make_blobs(
         self, mask: torch.Tensor, local_maxima: torch.Tensor = None
@@ -203,12 +206,6 @@ class DifferenceOfGaussiansFFT(nn.Module):
 
         blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
-
-    def predict(self, input: torch.Tensor):
-        masks, local_maximas = self.forward(input)
-        for m, l in zip(masks, local_maximas):
-            blobs = self.make_blobs(m, l)
-            yield blobs
 
 
 def torch_gaussian_kernel(
