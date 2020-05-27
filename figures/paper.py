@@ -208,7 +208,6 @@ def intersection_area(d, R, r):
 
 
 def circle_iou(c1, c2):
-    print(c1, c2)
     x1, y1, r1 = c1
     x2, y2, r2 = c2
     inters = intersection_area(np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2), r1, r2)
@@ -243,7 +242,12 @@ def circle_iou(c1, c2):
 
 
 def accuracy():
+    cpu_precisions = []
+    cpu_recalls = []
+    gpu_precisions = []
+    gpu_recalls = []
     for i in range(1, 100 + 1):
+        print(i)
         truth_fp = f"../simulation/test_data/truth{i}.csv"
         cpu_res = f"accuracy_results/cpu/screenshot{i}.png.res"
         gpu_res = f"accuracy_results/gpu/screenshot{i}.png.res"
@@ -251,13 +255,46 @@ def accuracy():
         img = io.imread(img_fp, as_gray=True)
 
         truth_csv = pd.read_csv(truth_fp)
+        # make_circles_fig(img, truth_csv[['y', 'x', 'r']].to_numpy()).show()
+
         cpu_res = np.loadtxt(cpu_res)
+        # make_circles_fig(img, cpu_res).show()
+        fps = 0
+        tps = 0
         for (x, y, r) in cpu_res:
-            print(truth_csv.apply(lambda r: circle_iou((x,y,r), (r['x'], r['y'], r['r'])), axis=1))
+            ious = truth_csv.apply(lambda row: circle_iou((x,y,r), (row['y'], row['x'], row['r'])), axis=1)
+            ious = ious[ious > 0].sort_values()
+            if len(ious):
+                tps += 1
+                fps += len(ious[1:])
 
+        precision = tps/len(cpu_res)
+        recall = fps/len(truth_csv)
+        cpu_precisions.append(precision)
+        cpu_recalls.append(recall)
 
-        break
+        gpu_res = np.loadtxt(gpu_res)
+        # make_circles_fig(img, gpu_res).show()
+        fps = 0
+        tps = 0
+        for (x, y, r) in gpu_res:
+            ious = truth_csv.apply(lambda row: circle_iou((x,y,r), (row['y'], row['x'], row['r'])), axis=1)
+            ious = ious[ious > 0].sort_values()
+            if len(ious):
+                tps += 1
+                fps += len(ious[1:])
 
+        precision = tps/len(gpu_res)
+        recall = fps/len(truth_csv)
+        gpu_precisions.append(precision)
+        gpu_recalls.append(recall)
+
+    plt.scatter(cpu_recalls, cpu_precisions, label="cpu")
+    plt.scatter(gpu_recalls, gpu_precisions, label="gpu")
+    plt.xlabel("recall")
+    plt.ylabel("precision")
+    plt.legend()
+    plt.show()
 
 if __name__ == "__main__":
     # gpu_gpu()
