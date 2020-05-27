@@ -78,8 +78,8 @@ class SimulPLIF(Dataset):
 class PLIF(Dataset):
     """Face Landmarks dataset."""
 
-    def __init__(self, plif_dir: Path):
-        self.img_paths = glob.glob(str(plif_dir / "*.TIF"))
+    def __init__(self, plif_dir: Path, ext="TIF"):
+        self.img_paths = glob.glob(str(plif_dir / f"*.{ext}"))
 
     def transform(self, img):
         img = img_as_float(img)
@@ -94,4 +94,4 @@ class PLIF(Dataset):
     def __getitem__(self, idx):
         image = io.imread(self.img_paths[idx], as_gray=True)
         t_img = self.transform(image)
-        return t_img
+        return t_img, self.img_paths[idx]

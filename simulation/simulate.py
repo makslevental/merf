@@ -1,4 +1,7 @@
 import csv
+import os
+import sys
+import time
 
 import numpy as np
 from PIL import Image
@@ -9,10 +12,10 @@ from skimage.io import imread
 from skimage.util import random_noise
 
 # noinspection PyUnresolvedReferences
-from sk_image.blob import make_circles_fig
+# from sk_image.blob import make_circles_fig
 
 # noinspection PyUnresolvedReferences
-from sk_image.preprocess import make_figure
+# from sk_image.preprocess import make_figure
 
 
 def create_circular_mask(h, w, center=None, radius=None):
@@ -29,6 +32,8 @@ def create_circular_mask(h, w, center=None, radius=None):
 
 
 if __name__ == "__main__":
+    print(sys.argv)
+    i = sys.argv[1]
     window_size = 1000
     V = np.zeros(100, [("center", np.float32, 3), ("radius", np.float32, 1)])
     cluster_mean = np.random.uniform(window_size // 4, 3 * window_size // 4, size=2)
@@ -41,7 +46,7 @@ if __name__ == "__main__":
     # V["center"][:, 2] = np.random.uniform(0, 1, len(V))
     V["radius"] = np.random.uniform(5, 30, len(V))
 
-    with open("truth.csv", "w", newline="") as csvfile:
+    with open(f"test_data/truth{i}.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["x", "y", "z", "r"])
         for ((x, y, z), r) in V:
@@ -72,7 +77,7 @@ if __name__ == "__main__":
             gl.GL_UNSIGNED_BYTE,
             framebuffer,
         )
-        png.from_array(framebuffer, "RGB").save("screenshot.png")
+        png.from_array(framebuffer, "RGB").save(f"test_data/screenshot{i}.png")
 
     points = gloo.Program("vertex_shader.glsl", "fragment_shader.glsl")
     points.bind(V.view(gloo.VertexBuffer))
@@ -80,7 +85,7 @@ if __name__ == "__main__":
     framebuffer = np.zeros((window.height, 3 * window.width), dtype=np.uint8)
     app.run(framecount=1)
 
-    im = imread("screenshot.png", as_gray=True)
+    im = imread(f"test_data/screenshot{i}.png", as_gray=True)
     # make_figure(im).show()
     background = np.zeros_like(im)
     noisy = random_noise(background, mode="gaussian")
@@ -94,4 +99,5 @@ if __name__ == "__main__":
     noise_strength = 2
     res = gaussian(2 * noisy + im, sigma=1)
     # make_circles_fig(res, np.array(blobs)).show()
-    Image.fromarray((res * 255).astype(np.uint8)).save("screenshot.png")
+    Image.fromarray((res * 255).astype(np.uint8)).save(f"test_data/screenshot{i}.png")
+    time.sleep(1)

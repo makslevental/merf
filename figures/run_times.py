@@ -9,6 +9,7 @@ from skimage import io, img_as_float
 from skimage.filters import gaussian
 from torch.utils.data import DataLoader
 
+from figures.accuracy import cpu_accuracy, gpu_accuracy
 from nn_dog import PIN_MEMORY, DEVICE
 from nn_dog.data import SimulPLIF
 from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv
@@ -18,7 +19,7 @@ from sk_image.enhance_contrast import stretch_composite_histogram
 min_bin = 2
 max_bin = 50
 min_sigma = 1
-mx_sigma = 30
+mx_sigma = 35
 REPEATS = 10
 
 
@@ -458,13 +459,15 @@ if __name__ == "__main__":
     # print("cpu_run_times")
     # cpu_run_times()
     #
-    print("copy times")
-    copy_times()
-    print()
-
-    print("io times")
-    io_times()
-    print()
-
-    print("preprocess times")
-    preprocess_times()
+    # print("copy times")
+    # copy_times()
+    # print()
+    #
+    # print("io times")
+    # io_times()
+    # print()
+    #
+    # print("preprocess times")
+    # preprocess_times()
+    cpu_accuracy()
+    gpu_accuracy()
