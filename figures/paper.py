@@ -1,22 +1,15 @@
-import csv
-import math
-
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tikzplotlib
 from matplotlib.lines import Line2D
-from scipy import spatial
 from skimage import io
-
-from sk_image.blob import make_circles_fig
 
 
 def gpu_gpu_copy():
     n_lines = 30
     c = np.arange(1, n_lines + 1)
-
     norm = mpl.colors.Normalize(vmin=c.min(), vmax=c.max())
     cmap = mpl.cm.ScalarMappable(norm=norm, cmap=mpl.cm.jet)
     cmap.set_array([])
@@ -203,7 +196,7 @@ def intersection_area(d, R, r):
     alpha = np.arccos((d2 + r2 - R2) / (2 * d * r))
     beta = np.arccos((d2 + R2 - r2) / (2 * d * R))
     return (
-        r2 * alpha + R2 * beta - 0.5 * (r2 * np.sin(2 * alpha) + R2 * np.sin(2 * beta))
+            r2 * alpha + R2 * beta - 0.5 * (r2 * np.sin(2 * alpha) + R2 * np.sin(2 * beta))
     )
 
 
@@ -262,14 +255,14 @@ def accuracy():
         fps = 0
         tps = 0
         for (x, y, r) in cpu_res:
-            ious = truth_csv.apply(lambda row: circle_iou((x,y,r), (row['y'], row['x'], row['r'])), axis=1)
+            ious = truth_csv.apply(lambda row: circle_iou((x, y, r), (row['y'], row['x'], row['r'])), axis=1)
             ious = ious[ious > 0].sort_values()
             if len(ious):
                 tps += 1
                 fps += len(ious[1:])
 
-        precision = tps/len(cpu_res)
-        recall = fps/len(truth_csv)
+        precision = tps / len(cpu_res)
+        recall = fps / len(truth_csv)
         cpu_precisions.append(precision)
         cpu_recalls.append(recall)
 
@@ -278,28 +271,61 @@ def accuracy():
         fps = 0
         tps = 0
         for (x, y, r) in gpu_res:
-            ious = truth_csv.apply(lambda row: circle_iou((x,y,r), (row['y'], row['x'], row['r'])), axis=1)
+            ious = truth_csv.apply(lambda row: circle_iou((x, y, r), (row['y'], row['x'], row['r'])), axis=1)
             ious = ious[ious > 0].sort_values()
             if len(ious):
                 tps += 1
                 fps += len(ious[1:])
 
-        precision = tps/len(gpu_res)
-        recall = fps/len(truth_csv)
+        precision = tps / len(gpu_res)
+        recall = fps / len(truth_csv)
         gpu_precisions.append(precision)
         gpu_recalls.append(recall)
 
-    plt.scatter(cpu_recalls, cpu_precisions, label="cpu")
-    plt.scatter(gpu_recalls, gpu_precisions, label="gpu")
+    pd.DataFrame(data={
+        "cpu_precision": cpu_precisions,
+        "cpu_recall": cpu_recalls,
+        "gpu_precision": gpu_precisions,
+        "gpu_recall": gpu_recalls,
+    }).to_csv("precision_recall.csv")
+
+
+def accuracy_plot():
+    phi = np.linspace(0, 2 * np.pi, 100)
+    x = np.sin(phi)
+    y = np.cos(phi)
+    rgb_cycle = np.vstack((  # Three sinusoids
+        .5 * (1. + np.cos(phi)),  # scaled to [0,1]
+        .5 * (1. + np.cos(phi + 2 * np.pi / 3)),  # 120° phase shifted.
+        .5 * (1. + np.cos(phi - 2 * np.pi / 3)))).T  # Shape = (60,3)
+
+    df = pd.read_csv("precision_recall.csv")
+    for i in range(100):
+        plt.scatter(df['cpu_recall'].values[i], df['cpu_precision'].values[i], c=rgb_cycle[i], s=90, marker="+")
+        plt.scatter(df['gpu_recall'].values[i], df['gpu_precision'].values[i], c=rgb_cycle[i], s=90, marker="x")
     plt.xlabel("recall")
     plt.ylabel("precision")
-    plt.legend()
-    plt.show()
+    # plt.legend()
+    # plt.show()
+    tikzplotlib.save("test.tex")
 
+    df = pd.read_csv("figures/test.tex", sep=" ")
+    splits = open("figures/test.tex").read().split("%")
+    rows = []
+    for i in range(20):
+        rows.append(splits[2 * i])
+        rows.append("\nx y\n")
+        rows.append(f"{df['x'][i]} {df['y'][i]}\n")
+        rows.append(splits[2 * i + 1])
+        rows.append("\nx y\n")
+        rows.append(f"{df['x'][i + 100]} {df['y'][i + 100]}\n")
+
+    print("".join(rows), file=open("test2.tex", "w"))
 if __name__ == "__main__":
     # gpu_gpu()
     # gpu_gpu_copy()
     # cpu_gpu_copy()
     # cpu_gpu()
     # cpu_gpu_standard()
-    accuracy()
+    # accuracy()
+    accuracy_plot()

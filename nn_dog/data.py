@@ -27,7 +27,7 @@ class SimulPLIF(Dataset):
         max_sigma=40,
         sigma_bins=50,
         apply_transforms=True,
-        load_truth=True,
+        load_truth=False,
     ):
         self.img_path = img_path
         self.repeats = num_repeats
@@ -78,8 +78,9 @@ class SimulPLIF(Dataset):
 class PLIF(Dataset):
     """Face Landmarks dataset."""
 
-    def __init__(self, plif_dir: Path, ext="TIF"):
+    def __init__(self, plif_dir: Path, ext="TIF", include_paths=False):
         self.img_paths = glob.glob(str(plif_dir / f"*.{ext}"))
+        self.include_paths = include_paths
 
     def transform(self, img):
         img = img_as_float(img)
@@ -94,4 +95,7 @@ class PLIF(Dataset):
     def __getitem__(self, idx):
         image = io.imread(self.img_paths[idx], as_gray=True)
         t_img = self.transform(image)
-        return t_img, self.img_paths[idx]
+        if self.include_paths:
+            return t_img, self.img_paths[idx]
+        else:
+            return t_img

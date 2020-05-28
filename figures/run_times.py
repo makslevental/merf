@@ -9,7 +9,6 @@ from skimage import io, img_as_float
 from skimage.filters import gaussian
 from torch.utils.data import DataLoader
 
-from figures.accuracy import cpu_accuracy, gpu_accuracy
 from nn_dog import PIN_MEMORY, DEVICE
 from nn_dog.data import SimulPLIF
 from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv
@@ -446,18 +445,18 @@ def preprocess_times():
 
 
 if __name__ == "__main__":
-    # print("gpu_fft_run_times")
-    # gpu_fft_run_times()
-    # print("gpu_standard_run_times")
-    # gpu_standard_run_times()
+    print("gpu_fft_run_times")
+    gpu_fft_run_times()
+    print("gpu_standard_run_times")
+    gpu_standard_run_times()
     #
     # print("gpu_standard_run_times_with_img_copy")
     # gpu_standard_run_times_with_img_copy()
     # print("gpu_fft_run_times_with_img_copy")
     # gpu_fft_run_times_with_img_copy()
     #
-    # print("cpu_run_times")
-    # cpu_run_times()
+    print("cpu_run_times")
+    cpu_run_times()
     #
     # print("copy times")
     # copy_times()
@@ -469,5 +468,3 @@ if __name__ == "__main__":
     #
     # print("preprocess times")
     # preprocess_times()
-    cpu_accuracy()
-    gpu_accuracy()
