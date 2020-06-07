@@ -8,18 +8,19 @@ import torch
 from skimage import io, img_as_float
 from skimage.filters import gaussian
 from torch.utils.data import DataLoader
-
-from nn_dog import PIN_MEMORY, DEVICE
+import torch.multiprocessing as mp
+from nn_dog import PIN_MEMORY, DEVICE, NUM_GPUS
 from nn_dog.data import SimulPLIF
-from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv
+from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv, DifferenceOfGaussiansFFTParallel, \
+    close_pool
 from sk_image.blob import cpu_blob_dog
 from sk_image.enhance_contrast import stretch_composite_histogram
 
 min_bin = 2
-max_bin = 50
+max_bin = 40
 min_sigma = 1
-mx_sigma = 35
-REPEATS = 10
+mx_sigma = 30
+REPEATS = 21
 
 
 def cpu_run_with_copy_times():
@@ -51,12 +52,12 @@ def cpu_run_with_copy_times():
                 # break
 
 
-def cpu_run_times():
+def cpu_run_times(fn):
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../simulation/screenshot.png"
     )
     screenshot = SimulPLIF(img_path=image_pth, num_repeats=1)
-    with open("cpu_run_times.csv", "w", newline="") as csvfile:
+    with open(f"{fn}.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["n_bin", "max_sigma", "time"])
         for i in range(REPEATS):
@@ -80,7 +81,7 @@ def cpu_run_times():
                 # break
 
 
-def gpu_fft_run_times():
+def gpu_fft_run_times(fn):
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../simulation/screenshot.png"
     )
@@ -89,7 +90,7 @@ def gpu_fft_run_times():
 
     train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
 
-    with open("gpu_fftconv_run_times.csv", "w", newline="") as csvfile:
+    with open(f"{fn}.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["n_bin", "max_sigma", "time"])
 
@@ -110,26 +111,85 @@ def gpu_fft_run_times():
                         for p in model.parameters():
                             p.requires_grad = False
                         model.eval()
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         START = time.monotonic()
 
                         mask, local_maxima = model(img_tensor)
                         m, l = next(zip(mask, local_maxima))
                         blobs = model.make_blobs(m, l)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
+
+                        END = time.monotonic()
+
+                        res = [n_bin, max_sigma, END - START]
+                        writer.writerow(res)
+                        close_pool()
+                        print(res)
+                #     break
+                # break
+
+def gpu_model_parallel_fft_run_times(fn):
+    image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+        "../simulation/screenshot.png"
+    )
+    screenshot = SimulPLIF(img_path=image_pth, num_repeats=1)
+    img_height, img_width = screenshot[0].squeeze(0).numpy().shape
+
+    train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
+
+    with open(f"{fn}.csv", "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["n_bin", "max_sigma", "time"])
+
+        for max_sigma in range(min_sigma + 1, mx_sigma + 1):
+            for n_bin in range(min_bin, max_bin + 1):
+                with torch.no_grad():
+                    model = DifferenceOfGaussiansFFTParallel(
+                        img_height=img_height,
+                        img_width=img_width,
+                        num_gpus=NUM_GPUS,
+                        pin_memory=PIN_MEMORY,
+                        master_device=DEVICE,
+                        min_sigma=min_sigma,
+                        max_sigma=max_sigma,
+                        overlap=0.9,
+                        threshold=0.012,
+                        prune=False,
+                        sigma_bins=n_bin,
+                    ).to(DEVICE, non_blocking=PIN_MEMORY)
+                    model.move_kernels_to_gpu()
+                    for p in model.parameters():
+                        p.requires_grad = False
+                    model.eval()
+
+                    for i in range(REPEATS):
+                        if i % 2 == 0:
+                            pool = mp.Pool(len(model.f_gaussian_pyramids))
+
+                        img_tensor = next(iter(train_dataloader))
+                        img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
+                        torch.cuda.synchronize(DEVICE)
+
+                        START = time.monotonic()
+
+                        mask, local_maxima = model(img_tensor, pool)
+                        m, l = next(zip(mask, local_maxima))
+                        blobs = model.make_blobs(m, l)
+                        torch.cuda.synchronize(DEVICE)
 
                         END = time.monotonic()
 
                         res = [n_bin, max_sigma, END - START]
                         writer.writerow(res)
                         print(res)
-                #     break
-                # break
+                        if i % 2:
+                            close_pool(pool)
+
 
 
 def gpu_fft_run_times_with_img_copy():
@@ -164,30 +224,29 @@ def gpu_fft_run_times_with_img_copy():
                         for p in model.parameters():
                             p.requires_grad = False
                         model.eval()
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         START = time.monotonic()
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-                        print(img_tensor.shape)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         mask, local_maxima = model(img_tensor)
                         m, l = next(zip(mask, local_maxima))
                         blobs = model.make_blobs(m, l)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         END = time.monotonic()
 
                         res = [n_bin, max_sigma, END - START]
-                        # writer.writerow(res)
+                        writer.writerow(res)
                         print(res)
                 #     break
                 # break
 
 
-def gpu_standard_run_times():
+def gpu_standard_run_times(fn):
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../simulation/screenshot.png"
     )
@@ -196,7 +255,7 @@ def gpu_standard_run_times():
         screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
 
-    with open("gpu_standardconv_run_times.csv", "w", newline="") as csvfile:
+    with open(f"{fn}.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["n_bin", "max_sigma", "time"])
         for i in range(REPEATS):
@@ -218,13 +277,13 @@ def gpu_standard_run_times():
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         START = time.monotonic()
 
                         mask, local_maxima = model(img_tensor.unsqueeze(0))
                         blobs = model.make_blobs(mask, local_maxima)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         END = time.monotonic()
 
@@ -269,11 +328,11 @@ def gpu_standard_run_times_with_img_copy():
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         mask, local_maxima = model(img_tensor.unsqueeze(0))
                         blobs = model.make_blobs(mask, local_maxima)
-                        torch.cuda.synchronize()
+                        torch.cuda.synchronize(DEVICE)
 
                         END = time.monotonic()
 
@@ -303,7 +362,7 @@ def copy_times():
         START = time.monotonic()
 
         img_tensor = img_tensor_cpu.to(DEVICE, non_blocking=PIN_MEMORY)
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(DEVICE)
 
         END = time.monotonic()
         times.append(END - START)
@@ -320,7 +379,7 @@ def copy_times():
         START = time.monotonic()
 
         img_tensor = img_tensor_cpu.to(DEVICE, non_blocking=PIN_MEMORY)
-        torch.cuda.synchronize()
+        torch.cuda.synchronize(DEVICE)
 
         END = time.monotonic()
         times.append(END - START)
@@ -445,18 +504,19 @@ def preprocess_times():
 
 
 if __name__ == "__main__":
-    print("gpu_fft_run_times")
-    gpu_fft_run_times()
-    print("gpu_standard_run_times")
-    gpu_standard_run_times()
+    mp.set_start_method("spawn")
+    # print("gpu_fft_run_times")
+    # gpu_fft_run_times("gpu_fft_run_times_uf_teststeesdfsdf")
+    # print("gpu_standard_run_times")
+    # gpu_standard_run_times("gpu_standard_run_times_uf")
     #
     # print("gpu_standard_run_times_with_img_copy")
     # gpu_standard_run_times_with_img_copy()
     # print("gpu_fft_run_times_with_img_copy")
     # gpu_fft_run_times_with_img_copy()
     #
-    print("cpu_run_times")
-    cpu_run_times()
+    # print("cpu_run_times")
+    # cpu_run_times("cpu_run_times_uf")
     #
     # print("copy times")
     # copy_times()
@@ -468,3 +528,6 @@ if __name__ == "__main__":
     #
     # print("preprocess times")
     # preprocess_times()
+    for NUM_GPUS in range(4, 5):
+        print("gpu_model_parallel_fft_run_times")
+        gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus")

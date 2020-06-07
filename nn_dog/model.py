@@ -1,25 +1,36 @@
 import math
 import numbers
 import os
+import time
 from functools import partial
 from pathlib import Path
 from typing import Tuple
 
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 from opt_einsum import contract
 from scipy import spatial
 from skimage.feature.blob import _blob_overlap
 from torch import nn
 from torch.utils.data import DataLoader
 
-from nn_dog import PIN_MEMORY
 from nn_dog.data import SimulPLIF
 from sk_image.blob import make_circles_fig
 
 # noinspection PyUnresolvedReferences
 from sk_image.preprocess import make_figure
 
+torch.backends.cudnn.benchmark = True
+
+
+
+BENCHMARK_TIMES = False
+
+def close_pool(pool):
+    pool.close()
+    pool.terminate()
+    pool.join()
 
 class DifferenceOfGaussiansStandardConv(nn.Module):
     def __init__(
@@ -305,6 +316,209 @@ class DifferenceOfGaussiansFFT(nn.Module):
         return blobs
 
 
+def dog(self_i_input):
+    self, i, input = self_i_input
+
+    if BENCHMARK_TIMES:
+        torch.cuda.synchronize(i)
+        start = time.monotonic()
+
+    f_gaussian_pyramid = self.f_gaussian_pyramids[i]
+    padded_input = self.pad_input(input)
+    f_input = torch.rfft(padded_input, signal_ndim=self.signal_ndim, onesided=True)
+    f_gaussian_images = comp_mul(f_gaussian_pyramid, f_input)
+    gaussian_images = torch.irfft(
+        f_gaussian_images,
+        signal_ndim=self.signal_ndim,
+        onesided=True,
+        signal_sizes=padded_input.shape[1:],
+    )
+    g = gaussian_images[
+        :,  # batch dimension
+        :,  # filter dimension
+        self.max_radius : self.img_height + self.max_radius,
+        self.max_radius : self.img_width + self.max_radius,
+    ]
+    g = g.to(self.master_device, non_blocking=self.pin_memory)
+
+    if BENCHMARK_TIMES:
+        torch.cuda.synchronize(i)
+        end = time.monotonic()
+        print(i, end - start)
+    return i, g
+
+
+class DifferenceOfGaussiansFFTParallel(nn.Module):
+    def __init__(
+        self,
+        *,
+        img_height: int,
+        img_width: int,
+        num_gpus: int,
+        pin_memory: bool,
+        master_device: int,
+        min_sigma: int = 1,
+        max_sigma: int = 10,
+        sigma_bins: int = 50,
+        truncate: float = 5.0,
+        maxpool_footprint: int = 3,
+        threshold: float = 0.001,
+        prune: bool = True,
+        overlap: float = 0.5,
+    ):
+        super(DifferenceOfGaussiansFFTParallel, self).__init__()
+        self.prune = prune
+        self.overlap = overlap
+        self.threshold = threshold
+        self.img_height = img_height
+        self.img_width = img_width
+        self.signal_ndim = 2
+        self.num_gpus = num_gpus
+        self.pin_memory = pin_memory
+        self.master_device = master_device
+
+        self.sigma_list = np.concatenate(
+            [
+                np.linspace(min_sigma, max_sigma, sigma_bins),
+                [max_sigma + (max_sigma - min_sigma) / (sigma_bins - 1)],
+            ]
+        )
+        sigmas = torch.from_numpy(self.sigma_list)
+        self.register_buffer("sigmas", sigmas)
+        # print("gaussian pyramid sigmas: ", len(sigmas), sigmas)
+
+        # accommodate largest filter
+        self.max_radius = int(truncate * max(sigmas) + 0.5)
+        max_bandwidth = 2 * self.max_radius + 1
+        # pad fft to prevent aliasing
+        padded_height = img_height + max_bandwidth - 1
+        padded_width = img_width + max_bandwidth - 1
+        # round up to next power of 2 for cheaper fft.
+        self.fft_height = 2 ** math.ceil(math.log2(padded_height))
+        self.fft_width = 2 ** math.ceil(math.log2(padded_width))
+        self.pad_input = nn.ConstantPad2d(
+            (0, self.fft_width - img_width, 0, self.fft_height - img_height), 0
+        )
+
+        self.f_gaussian_pyramids = []
+        kernel_pad = nn.ConstantPad2d(
+            # left, right, top, bottom
+            (0, self.fft_width - max_bandwidth, 0, self.fft_height - max_bandwidth),
+            0,
+        )
+        for i, chunk_sigmas in enumerate(
+            chunks(sigmas, math.ceil(len(self.sigma_list) / num_gpus))
+        ):
+            f_gaussian_pyramid = []
+            for j, s in enumerate(chunk_sigmas):
+                radius = int(truncate * s + 0.5)
+                width = 2 * radius + 1
+                kernel = torch_gaussian_kernel(width=width, sigma=s.item())
+
+                # this is to align all of the kernels so that the eventual fft shifts a fixed amount
+                center_pad_size = self.max_radius - radius
+                if center_pad_size > 0:
+                    centered_kernel = nn.ConstantPad2d(center_pad_size, 0)(kernel)
+                else:
+                    centered_kernel = kernel
+
+                padded_kernel = kernel_pad(centered_kernel)
+
+                f_kernel = torch.rfft(
+                    padded_kernel, signal_ndim=self.signal_ndim, onesided=True
+                )
+                f_gaussian_pyramid.append(f_kernel)
+
+            self.f_gaussian_pyramids.append(torch.stack(f_gaussian_pyramid, dim=0))
+
+
+        self.max_pool = nn.MaxPool3d(
+            kernel_size=maxpool_footprint,
+            padding=(maxpool_footprint - 1) // 2,
+            stride=1,
+        )
+
+    def move_kernels_to_gpu(self):
+        for i, f_gaussian_pyramid in enumerate(self.f_gaussian_pyramids):
+            self.f_gaussian_pyramids[i] = f_gaussian_pyramid.to(f"cuda:{i}")
+
+    def forward(self, input: torch.Tensor, pool) -> Tuple[torch.Tensor, torch.Tensor]:
+        if BENCHMARK_TIMES:
+            torch.cuda.synchronize(self.master_device)
+            start = time.monotonic()
+
+        all_gaussian_images = list(
+            pool.map(
+                dog,
+                [
+                    (self, i, input.to(f"cuda:{i}", non_blocking=self.pin_memory))
+                    for i in range(len(self.f_gaussian_pyramids))
+                ],
+            )
+        )
+        all_gaussian_images = [v for i, v in all_gaussian_images]
+
+        if BENCHMARK_TIMES:
+            torch.cuda.synchronize(self.master_device)
+            end = time.monotonic()
+            print("parallel", end - start)
+
+            torch.cuda.synchronize(self.master_device)
+            start = time.monotonic()
+
+        all_gaussian_images = torch.cat(all_gaussian_images, dim=1)
+        dog_images = (all_gaussian_images[:, :-1] - all_gaussian_images[:, 1:]) * (
+            self.sigmas[:-1].unsqueeze(0).unsqueeze(0).T
+        )
+        local_maxima = self.max_pool(dog_images)
+        mask = (local_maxima == dog_images) & (dog_images > self.threshold)
+
+        if BENCHMARK_TIMES:
+            torch.cuda.synchronize(self.master_device)
+            end = time.monotonic()
+            print("rest", end - start)
+
+        return mask, local_maxima
+
+    def make_blobs(
+        self, mask: torch.Tensor, local_maxima: torch.Tensor = None
+    ) -> np.ndarray:
+        """Make blobs from mask produced by forward pass
+
+        Parameters
+        ----------
+        mask: nonzero peaks after filtering
+        local_maxima: peak values at nonzero positions in the mask. optional
+
+        Returns
+        -------
+        blobs: blobs in the image
+
+        """
+
+        if local_maxima is not None:
+            local_maxima = local_maxima[mask].detach().cpu().numpy()
+        coords = mask.nonzero().cpu().numpy()
+        cds = coords.astype(np.float64)
+        # translate final column of cds, which contains the index of the
+        # sigma that produced the maximum intensity value, into the sigma
+        sigmas_of_peaks = self.sigma_list[coords[:, 0]]
+        # Remove sigma index and replace with sigmas
+        cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
+        if self.prune:
+            blobs = prune_blobs(
+                blobs_array=cds,
+                overlap=self.overlap,
+                local_maxima=local_maxima,
+                sigma_dim=1,
+            )
+        else:
+            blobs = cds
+
+        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
+        return blobs
+
+
 def torch_gaussian_kernel(
     width: int = 21, sigma: int = 3, dim: int = 2
 ) -> torch.Tensor:
@@ -341,6 +555,12 @@ def torch_gaussian_kernel(
     # Make sure sum of values in gaussian kernel equals 1.
     kernel = kernel / torch.sum(kernel)
     return kernel
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
 
 
 def comp_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -429,6 +649,57 @@ def prune_blobs(
     return blobs_array[blobs_array[:, -1] > 0]
 
 
+def main_parallel():
+    with torch.no_grad():
+        image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+            "../simulation/screenshot.png"
+        )
+
+        # image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
+        #     "../data/RawData/R109_60deg_6-8-25_OHP-LS000252.T000.D000.P000.H000.PLIF1.TIF"
+        # )
+        screenshot = SimulPLIF(img_path=image_pth, num_repeats=1, load_truth=False)
+        img_height, img_width = screenshot[0].squeeze(0).numpy().shape
+
+        from nn_dog import PIN_MEMORY, NUM_GPUS, DEVICE
+
+        train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
+        img_tensor = next(iter(train_dataloader))
+
+        dog = DifferenceOfGaussiansFFTParallel(
+            img_height=img_height,
+            img_width=img_width,
+            num_gpus=NUM_GPUS,
+            pin_memory=PIN_MEMORY,
+            master_device=DEVICE,
+            sigma_bins=40,
+            threshold=0.012,
+            max_sigma=30,
+        ).to(DEVICE, non_blocking=PIN_MEMORY)
+        dog.move_kernels_to_gpu()
+        for p in dog.parameters():
+            p.requires_grad = False
+        dog.eval()
+
+        ts = []
+        for i in range(100):
+            torch.cuda.synchronize(DEVICE)
+            start = time.monotonic()
+
+            dog(img_tensor)
+
+            torch.cuda.synchronize(DEVICE)
+            end = time.monotonic()
+            ts.append(end - start)
+            print(end - start)
+            print()
+        print(sum(ts[10:]) / len(ts[10:]))
+        # for m, l in zip(masks, local_maximas):
+        #     blobs = dog.make_blobs(m, l)
+        #     # make_circles_fig(screenshot[0].numpy(), blobs).savefig("blobs.png")
+        #     break
+
+
 def main():
     with torch.no_grad():
         # image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
@@ -440,6 +711,8 @@ def main():
         )
         screenshot = SimulPLIF(img_path=image_pth, num_repeats=1, load_truth=False)
         img_height, img_width = screenshot[0].squeeze(0).numpy().shape
+
+        from nn_dog import PIN_MEMORY
 
         train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
         img_tensor = next(iter(train_dataloader))
@@ -455,6 +728,16 @@ def main():
             blobs = dog.make_blobs(m, l)
             make_circles_fig(screenshot[0].numpy(), blobs).show()
 
+def test(i):
+    time.sleep(i)
 
 if __name__ == "__main__":
-    main()
+    mp.set_start_method("spawn")
+    # main_parallel()
+    POOL = mp.Pool(5)
+    POOL.map(test, range(5))
+    close_pool()
+
+    POOL = mp.Pool(5)
+    POOL.map(test, range(5))
+    close_pool()

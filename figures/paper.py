@@ -6,6 +6,131 @@ import tikzplotlib
 from matplotlib.lines import Line2D
 from skimage import io
 
+def uf_plots():
+    n_lines = 30
+    c = np.arange(1, n_lines + 1)
+    norm = mpl.colors.Normalize(vmin=c.min(), vmax=c.max())
+    cmap = mpl.cm.ScalarMappable(norm=norm, cmap=mpl.cm.jet)
+    cmap.set_array([])
+
+    fig, ax = plt.subplots(dpi=100)
+
+    gpu1 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_1_gpus.csv")
+    gpu2 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_2_gpus.csv")
+    gpu3 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_3_gpus.csv")
+    gpu4 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_4_gpus.csv")
+    for i in range(3, 31):
+        gpu11 = gpu1[gpu1["max_sigma"] == i]["time"].values
+        gpu22 = gpu2[gpu2["max_sigma"] == i]["time"].values
+        gpu33 = gpu3[gpu3["max_sigma"] == i]["time"].values
+        gpu44 = gpu4[gpu4["max_sigma"] == i]["time"].values
+
+
+        ax.plot(np.arange(3, 41), gpu11[1:], c=cmap.to_rgba(i + 1))
+        ax.plot(np.arange(3, 41), gpu22[1:], "--", c=cmap.to_rgba(i + 1))
+        ax.plot(np.arange(3, 41), gpu33[1:], "-.", c=cmap.to_rgba(i + 1))
+        ax.plot(np.arange(3, 41), gpu44[1:], ":", c=cmap.to_rgba(i + 1))
+
+
+    ax.set_xticks([0, 3, 10, 20, 30, 40, 50])
+    ax.set_ylabel("time (s)")
+    ax.set_xlabel("filters")
+    fig.colorbar(cmap, ticks=c, label="max radius")
+
+    gpu1line = Line2D([0], [0], color="blue", linewidth=2, linestyle="-")
+    gpu2line = Line2D([0], [0], color="blue", linewidth=2, linestyle="--")
+    gpu3line = Line2D([0], [0], color="blue", linewidth=2, linestyle="-.")
+    gpu4line = Line2D([0], [0], color="blue", linewidth=2, linestyle=":")
+    fig.legend(
+        [gpu1line, gpu2line, gpu3line, gpu4line],
+        ["1", "2", "3", "4"],
+        loc="upper left",
+        bbox_to_anchor=(0.1, 0.9),
+    )
+    fig.show()
+
+def two_plots(fp1, plot_name1, fp2, plot_name2, tikz=False):
+    n_lines = 30
+    c = np.arange(1, n_lines + 1)
+    norm = mpl.colors.Normalize(vmin=c.min(), vmax=c.max())
+    cmap = mpl.cm.ScalarMappable(norm=norm, cmap=mpl.cm.jet)
+    cmap.set_array([])
+
+    fig, ax = plt.subplots(dpi=100)
+
+    gpu_standard_df = pd.read_csv(fp1)
+    gpu_standard_df = pd.DataFrame(
+        gpu_standard_df.groupby(["n_bin", "max_sigma"]).mean().to_records()
+    )
+    gpu_df = pd.read_csv(fp2)
+    gpu_df = pd.DataFrame(gpu_df.groupby(["n_bin", "max_sigma"]).mean().to_records())
+    for i in range(3, 31):
+        gpu_st = gpu_standard_df[gpu_standard_df["max_sigma"] == i]["time"].values
+        gpu = gpu_df[gpu_df["max_sigma"] == i]["time"].values
+        if len(gpu_st) == 0 or len(gpu) == 0:
+            continue
+
+        ax.plot(np.arange(3, 51), gpu_st[1:], "--", c=cmap.to_rgba(i + 1))
+        ax.plot(np.arange(3, 51), gpu[1:], c=cmap.to_rgba(i + 1))
+
+    ax.set_yscale('log')
+    ax.set_xticks([0, 3, 10, 20, 30, 40, 50])
+    ax.set_ylabel("time (s)")
+    ax.set_xlabel("filters")
+    fig.colorbar(cmap, ticks=c, label="max radius")
+
+    cpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle="--")
+    gpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle="-")
+    fig.legend(
+        [cpuline, gpuline],
+        [plot_name1, plot_name2],
+        loc="upper left",
+        bbox_to_anchor=(0.1, 0.9),
+    )
+    if tikz:
+        tikzplotlib.save(f"{plot_name1}_{plot_name2}.tex", figure=fig)
+    else:
+        fig.show()
+
+def gpu_gpu_parallel():
+    n_lines = 30
+    c = np.arange(1, n_lines + 1)
+    norm = mpl.colors.Normalize(vmin=c.min(), vmax=c.max())
+    cmap = mpl.cm.ScalarMappable(norm=norm, cmap=mpl.cm.jet)
+    cmap.set_array([])
+
+    fig, ax = plt.subplots(dpi=100)
+
+    gpu_standard_df = pd.read_csv("time_results/gpu_model_parallel_fft_run_times_uf_4_gpus.csv")
+    gpu_standard_df = pd.DataFrame(
+        gpu_standard_df.groupby(["n_bin", "max_sigma"]).mean().to_records()
+    )
+    gpu_df = pd.read_csv("time_results/gpu_fft_run_times_uf.csv")
+    gpu_df = pd.DataFrame(gpu_df.groupby(["n_bin", "max_sigma"]).mean().to_records())
+    for i in range(3, 31):
+        gpu_st = gpu_standard_df[gpu_standard_df["max_sigma"] == i]["time"].values
+        gpu = gpu_df[gpu_df["max_sigma"] == i]["time"].values
+        if len(gpu_st) == 0 or len(gpu) == 0:
+            continue
+
+        ax.plot(np.arange(3, 51), gpu_st[1:], "--", c=cmap.to_rgba(i + 1))
+        ax.plot(np.arange(3, 51), gpu[1:], c=cmap.to_rgba(i + 1))
+
+    ax.set_yscale('log')
+    ax.set_xticks([0, 3, 10, 20, 30, 40, 50])
+    ax.set_ylabel("time (s)")
+    ax.set_xlabel("filters")
+    fig.colorbar(cmap, ticks=c, label="max radius")
+
+    cpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle="--")
+    gpuline = Line2D([0], [0], color="blue", linewidth=2, linestyle="-")
+    fig.legend(
+        [cpuline, gpuline],
+        ["parallel", "single"],
+        loc="upper left",
+        bbox_to_anchor=(0.1, 0.9),
+    )
+    fig.show()
 
 def gpu_gpu_copy():
     n_lines = 30
@@ -289,6 +414,12 @@ def accuracy():
         "gpu_recall": gpu_recalls,
     }).to_csv("precision_recall.csv")
 
+def accuracy_pdf():
+    df = pd.read_csv("precision_recall.csv")
+    plt.hist(df['cpu_precision'] - df['gpu_precision'], bins=20, label="$CPU_p - GPU_p$", alpha=.5)
+    plt.hist(df['cpu_recall'] - df['gpu_recall'], bins=20, label="$CPU_r - GPU_r$", alpha=.5)
+    plt.legend()
+    plt.show()
 
 def accuracy_plot():
     phi = np.linspace(0, 2 * np.pi, 100)
@@ -321,6 +452,7 @@ def accuracy_plot():
         rows.append(f"{df['x'][i + 100]} {df['y'][i + 100]}\n")
 
     print("".join(rows), file=open("test2.tex", "w"))
+
 if __name__ == "__main__":
     # gpu_gpu()
     # gpu_gpu_copy()
@@ -328,4 +460,26 @@ if __name__ == "__main__":
     # cpu_gpu()
     # cpu_gpu_standard()
     # accuracy()
-    accuracy_plot()
+    # accuracy_plot()
+    # accuracy_pdf()
+    # gpu_gpu_parallel()
+    # two_plots(
+    #    "/Users/maksim/dev_projects/merf/figures/time_results/gpu_standard_run_times_uf.csv",
+    #    "standard",
+    #    "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fft_run_times_uf.csv",
+    #    "fft"
+    # )
+
+    # two_plots(
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fftconv_run_times.csv",
+    #     "joe",
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fft_run_times_uf.csv",
+    #     "uf"
+    # )
+    # two_plots(
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_joe_2_gpus.csv",
+    #     "parallel",
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fftconv_run_times.csv",
+    #     "single"
+    # )
+    uf_plots()

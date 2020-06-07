@@ -12,4 +12,4 @@ NUM_GPUS = torch.cuda.device_count()
 print(f"num gpus: {NUM_GPUS}")
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-PIN_MEMORY = False
+PIN_MEMORY = True
