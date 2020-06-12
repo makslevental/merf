@@ -21,16 +21,15 @@ from sk_image.blob import make_circles_fig
 # noinspection PyUnresolvedReferences
 from sk_image.preprocess import make_figure
 
-torch.backends.cudnn.benchmark = True
-
-
 
 BENCHMARK_TIMES = False
+
 
 def close_pool(pool):
     pool.close()
     pool.terminate()
     pool.join()
+
 
 class DifferenceOfGaussiansStandardConv(nn.Module):
     def __init__(
@@ -431,7 +430,6 @@ class DifferenceOfGaussiansFFTParallel(nn.Module):
 
             self.f_gaussian_pyramids.append(torch.stack(f_gaussian_pyramid, dim=0))
 
-
         self.max_pool = nn.MaxPool3d(
             kernel_size=maxpool_footprint,
             padding=(maxpool_footprint - 1) // 2,
@@ -728,8 +726,10 @@ def main():
             blobs = dog.make_blobs(m, l)
             make_circles_fig(screenshot[0].numpy(), blobs).show()
 
+
 def test(i):
     time.sleep(i)
+
 
 if __name__ == "__main__":
     mp.set_start_method("spawn")

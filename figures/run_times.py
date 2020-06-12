@@ -5,9 +5,11 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch.backends import cudnn
+cudnn.deterministic = True
+from torch.utils.data import DataLoader
 from skimage import io, img_as_float
 from skimage.filters import gaussian
-from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
 from nn_dog import PIN_MEMORY, DEVICE, NUM_GPUS
 from nn_dog.data import SimulPLIF
@@ -20,7 +22,7 @@ min_bin = 2
 max_bin = 40
 min_sigma = 1
 mx_sigma = 30
-REPEATS = 21
+REPEATS = 1
 
 
 def cpu_run_with_copy_times():
@@ -128,7 +130,6 @@ def gpu_fft_run_times(fn):
 
                         res = [n_bin, max_sigma, END - START]
                         writer.writerow(res)
-                        close_pool()
                         print(res)
                 #     break
                 # break
@@ -167,9 +168,8 @@ def gpu_model_parallel_fft_run_times(fn):
                         p.requires_grad = False
                     model.eval()
 
+                    pool = mp.Pool(len(model.f_gaussian_pyramids), maxtasksperchild=10)
                     for i in range(REPEATS):
-                        if i % 2 == 0:
-                            pool = mp.Pool(len(model.f_gaussian_pyramids))
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
@@ -187,8 +187,7 @@ def gpu_model_parallel_fft_run_times(fn):
                         res = [n_bin, max_sigma, END - START]
                         writer.writerow(res)
                         print(res)
-                        if i % 2:
-                            close_pool(pool)
+                    # close_pool(pool)
 
 
 
@@ -250,7 +249,7 @@ def gpu_standard_run_times(fn):
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../simulation/screenshot.png"
     )
-    screenshot = SimulPLIF(img_path=image_pth, num_repeats=1)
+    screenshot = SimulPLIF(img_path=image_pth, num_repeats=1000000)
     train_dataloader = torch.utils.data.DataLoader(
         screenshot, batch_size=1, pin_memory=PIN_MEMORY
     )
@@ -258,22 +257,23 @@ def gpu_standard_run_times(fn):
     with open(f"{fn}.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["n_bin", "max_sigma", "time"])
-        for i in range(REPEATS):
 
-            for max_sigma in range(min_sigma + 1, mx_sigma + 1):
-                for n_bin in range(min_bin, max_bin + 1):
-                    with torch.no_grad():
-                        model = DifferenceOfGaussiansStandardConv(
-                            min_sigma=min_sigma,
-                            max_sigma=max_sigma,
-                            overlap=0.9,
-                            threshold=0.012,
-                            prune=False,
-                            sigma_bins=n_bin,
-                        ).to(DEVICE, non_blocking=PIN_MEMORY)
-                        for p in model.parameters():
-                            p.requires_grad = False
-                        model.eval()
+        for max_sigma in range(min_sigma + 1, mx_sigma + 1):
+            for n_bin in range(min_bin, max_bin + 1):
+                with torch.no_grad():
+                    model = DifferenceOfGaussiansStandardConv(
+                        min_sigma=min_sigma,
+                        max_sigma=max_sigma,
+                        overlap=0.9,
+                        threshold=0.012,
+                        prune=False,
+                        sigma_bins=n_bin,
+                    ).to(DEVICE, non_blocking=PIN_MEMORY)
+                    for p in model.parameters():
+                        p.requires_grad = False
+                    model.eval()
+
+                    for i in range(REPEATS):
 
                         img_tensor = next(iter(train_dataloader))
                         img_tensor = img_tensor.to(DEVICE, non_blocking=PIN_MEMORY)
@@ -290,6 +290,7 @@ def gpu_standard_run_times(fn):
                         res = [n_bin, max_sigma, END - START]
                         writer.writerow(res)
                         print(res)
+                    del model
                 #     break
                 # break
 
@@ -504,11 +505,11 @@ def preprocess_times():
 
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn")
+    # mp.set_start_method("spawn")
     # print("gpu_fft_run_times")
-    # gpu_fft_run_times("gpu_fft_run_times_uf_teststeesdfsdf")
-    # print("gpu_standard_run_times")
-    # gpu_standard_run_times("gpu_standard_run_times_uf")
+    # gpu_fft_run_times("gpu_fft_run_times_joe_deterministic")
+    print("gpu_standard_run_times")
+    gpu_standard_run_times("gpu_standard_run_times_joe_deterministic")
     #
     # print("gpu_standard_run_times_with_img_copy")
     # gpu_standard_run_times_with_img_copy()
@@ -528,6 +529,6 @@ if __name__ == "__main__":
     #
     # print("preprocess times")
     # preprocess_times()
-    for NUM_GPUS in range(4, 5):
-        print("gpu_model_parallel_fft_run_times")
-        gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus")
+    # for NUM_GPUS in range(4, 5):
+    #     print("gpu_model_parallel_fft_run_times")
+    #     gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus")

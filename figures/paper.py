@@ -476,10 +476,10 @@ if __name__ == "__main__":
     #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fft_run_times_uf.csv",
     #     "uf"
     # )
-    # two_plots(
-    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_joe_2_gpus.csv",
-    #     "parallel",
-    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fftconv_run_times.csv",
-    #     "single"
-    # )
-    uf_plots()
+    two_plots(
+        "/Users/maksim/dev_projects/merf/figures/time_results/gpu_standard_joe_deterministic.csv",
+        "joe_deterministic_standard",
+        "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fftconv_run_times.csv",
+        "fft"
+    )
+    # uf_plots()
