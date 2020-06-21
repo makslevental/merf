@@ -18,6 +18,7 @@ from skimage.transform import hough_circle, hough_circle_peaks
 # from simulation.simulate import create_circular_mask
 
 # Load picture and detect edges
+from nn_dog.model import prune_blobs
 from sk_image.enhance_contrast import stretch_composite_histogram
 
 
@@ -75,7 +76,6 @@ def cpu_blob_dog(
         image_cube,
         threshold_abs=threshold,
         footprint=np.ones((3,) * (image.ndim + 1)),
-        threshold_rel=0.0,
         exclude_border=exclude_border,
     )
     # Catch no peaks
@@ -98,7 +98,7 @@ def cpu_blob_dog(
 
     sigma_dim = sigmas_of_peaks.shape[1]
     if prune:
-        return _prune_blobs(lm, overlap, sigma_dim=sigma_dim)
+        return prune_blobs(blobs_array=lm, overlap=overlap, sigma_dim=sigma_dim)
     else:
         return lm
 

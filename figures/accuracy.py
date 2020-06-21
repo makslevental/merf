@@ -1,4 +1,5 @@
 import glob
+import math
 import os
 from pathlib import Path
 
@@ -22,7 +23,7 @@ def cpu_accuracy():
         + "/*.png"
     )
     print(glob_str)
-    for image_pth in glob.glob(glob_str):
+    for image_pth in sorted(glob.glob(glob_str)):
         screenshot = SimulPLIF(img_path=image_pth, num_repeats=1, load_truth=False)
         blobs = cpu_blob_dog(
             screenshot[0],
@@ -33,7 +34,7 @@ def cpu_accuracy():
             sigma_bins=max_bin,
             prune=False,
         )
-        blobs[:, 2] = blobs[:, 2] * np.sqrt(2)
+        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         # make_circles_fig(screenshot[0].numpy(), blobs).show()
         # break
         fn = str(
@@ -49,10 +50,12 @@ def gpu_accuracy():
         "../simulation/test_data/"
     )
 
-    screenshot = PLIF(plif_dir=test_img_dir, ext="png")
+    screenshot = PLIF(plif_dir=test_img_dir, ext="png", include_paths=True)
     img_height, img_width = screenshot[0][0].squeeze(0).numpy().shape
 
-    train_dataloader = DataLoader(screenshot, batch_size=1, pin_memory=PIN_MEMORY)
+    train_dataloader = DataLoader(
+        screenshot, batch_size=1, pin_memory=PIN_MEMORY, shuffle=False
+    )
 
     with torch.no_grad():
         model = DifferenceOfGaussiansFFT(
@@ -83,3 +86,8 @@ def gpu_accuracy():
         )
         np.savetxt(fn, blobs)
         print(fn)
+
+
+if __name__ == "__main__":
+    # cpu_accuracy()
+    gpu_accuracy()

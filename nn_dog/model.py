@@ -16,7 +16,6 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from nn_dog.data import SimulPLIF
-from sk_image.blob import make_circles_fig
 
 # noinspection PyUnresolvedReferences
 from sk_image.preprocess import make_figure
@@ -113,7 +112,12 @@ class DifferenceOfGaussiansStandardConv(nn.Module):
         # Remove sigma index and replace with sigmas
         cds = np.hstack([cds[:, 1:], sigmas_of_peaks[np.newaxis].T])
         if self.prune:
-            blobs = prune_blobs(cds, self.overlap, local_maxima, sigma_dim=1)
+            blobs = prune_blobs(
+                blobs_array=cds,
+                overlap=self.overlap,
+                local_maxima=local_maxima,
+                sigma_dim=1,
+            )
         else:
             blobs = cds
 
@@ -173,7 +177,7 @@ class DifferenceOfGaussiansFFT(nn.Module):
         min_sigma: int = 1,
         max_sigma: int = 10,
         sigma_bins: int = 50,
-        truncate: float = 5.0,
+        truncate: float = 4.0,
         maxpool_footprint: int = 3,
         threshold: float = 0.001,
         prune: bool = True,

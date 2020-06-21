@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import tikzplotlib
 from matplotlib.lines import Line2D
+from scipy.stats import stats
 from skimage import io
+
+from sk_image.blob import make_circles_fig
+
 
 def uf_plots():
     n_lines = 30
@@ -15,39 +19,35 @@ def uf_plots():
 
     fig, ax = plt.subplots(dpi=100)
 
-    gpu1 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_1_gpus.csv")
     gpu2 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_2_gpus.csv")
     gpu3 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_3_gpus.csv")
     gpu4 = pd.read_csv("/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_4_gpus.csv")
     for i in range(3, 31):
-        gpu11 = gpu1[gpu1["max_sigma"] == i]["time"].values
         gpu22 = gpu2[gpu2["max_sigma"] == i]["time"].values
         gpu33 = gpu3[gpu3["max_sigma"] == i]["time"].values
         gpu44 = gpu4[gpu4["max_sigma"] == i]["time"].values
 
-
-        ax.plot(np.arange(3, 41), gpu11[1:], c=cmap.to_rgba(i + 1))
         ax.plot(np.arange(3, 41), gpu22[1:], "--", c=cmap.to_rgba(i + 1))
         ax.plot(np.arange(3, 41), gpu33[1:], "-.", c=cmap.to_rgba(i + 1))
         ax.plot(np.arange(3, 41), gpu44[1:], ":", c=cmap.to_rgba(i + 1))
 
 
-    ax.set_xticks([0, 3, 10, 20, 30, 40, 50])
+    ax.set_xticks([0, 3, 10, 20, 30, 40])
+    ax.set_yscale('log')
     ax.set_ylabel("time (s)")
     ax.set_xlabel("filters")
     fig.colorbar(cmap, ticks=c, label="max radius")
 
-    gpu1line = Line2D([0], [0], color="blue", linewidth=2, linestyle="-")
-    gpu2line = Line2D([0], [0], color="blue", linewidth=2, linestyle="--")
-    gpu3line = Line2D([0], [0], color="blue", linewidth=2, linestyle="-.")
-    gpu4line = Line2D([0], [0], color="blue", linewidth=2, linestyle=":")
+    gpu2line = Line2D([0], [0], color="red", linewidth=2, linestyle="--")
+    gpu3line = Line2D([0], [0], color="red", linewidth=2, linestyle="-.")
+    gpu4line = Line2D([0], [0], color="red", linewidth=2, linestyle=":")
     fig.legend(
-        [gpu1line, gpu2line, gpu3line, gpu4line],
-        ["1", "2", "3", "4"],
+        [gpu2line, gpu3line, gpu4line],
+        ["2", "3", "4"],
         loc="upper left",
         bbox_to_anchor=(0.1, 0.9),
     )
-    fig.show()
+    tikzplotlib.save("multiple_gpu.tex")
 
 def two_plots(fp1, plot_name1, fp2, plot_name2, tikz=False):
     n_lines = 30
@@ -359,7 +359,7 @@ def circle_iou(c1, c2):
 #         positive
 
 
-def accuracy():
+def accuracy(save=True):
     cpu_precisions = []
     cpu_recalls = []
     gpu_precisions = []
@@ -369,8 +369,6 @@ def accuracy():
         truth_fp = f"../simulation/test_data/truth{i}.csv"
         cpu_res = f"accuracy_results/cpu/screenshot{i}.png.res"
         gpu_res = f"accuracy_results/gpu/screenshot{i}.png.res"
-        img_fp = f"../simulation/test_data/screenshot{i}.png"
-        img = io.imread(img_fp, as_gray=True)
 
         truth_csv = pd.read_csv(truth_fp)
         # make_circles_fig(img, truth_csv[['y', 'x', 'r']].to_numpy()).show()
@@ -407,19 +405,31 @@ def accuracy():
         gpu_precisions.append(precision)
         gpu_recalls.append(recall)
 
-    pd.DataFrame(data={
+    df = pd.DataFrame(data={
         "cpu_precision": cpu_precisions,
         "cpu_recall": cpu_recalls,
         "gpu_precision": gpu_precisions,
         "gpu_recall": gpu_recalls,
-    }).to_csv("precision_recall.csv")
+    })
+
+    if save:
+        df.to_csv("precision_recall.csv")
+    else:
+        print(df)
 
 def accuracy_pdf():
-    df = pd.read_csv("precision_recall.csv")
-    plt.hist(df['cpu_precision'] - df['gpu_precision'], bins=20, label="$CPU_p - GPU_p$", alpha=.5)
-    plt.hist(df['cpu_recall'] - df['gpu_recall'], bins=20, label="$CPU_r - GPU_r$", alpha=.5)
+    df = pd.read_csv("/Users/maksim/dev_projects/merf/figures/accuracy_results/precision_recall.csv")
+    prec = df['cpu_precision'] - df['gpu_precision']
+    rec = df['cpu_recall'] - df['gpu_recall']
+
+    print(stats.describe(prec))
+    print(stats.describe(rec))
+
+    plt.hist(prec, bins=20, label="$CPU_p - GPU_p$", alpha=.5)
+    plt.hist(rec, bins= 100, label="$CPU_r - GPU_r$", alpha=.5)
     plt.legend()
-    plt.show()
+    tikzplotlib.save("accuracy.tex")
+    # plt.show()
 
 def accuracy_plot():
     phi = np.linspace(0, 2 * np.pi, 100)
@@ -430,7 +440,7 @@ def accuracy_plot():
         .5 * (1. + np.cos(phi + 2 * np.pi / 3)),  # 120° phase shifted.
         .5 * (1. + np.cos(phi - 2 * np.pi / 3)))).T  # Shape = (60,3)
 
-    df = pd.read_csv("precision_recall.csv")
+    df = pd.read_csv("/Users/maksim/dev_projects/merf/figures/accuracy_results/precision_recall.csv")
     for i in range(100):
         plt.scatter(df['cpu_recall'].values[i], df['cpu_precision'].values[i], c=rgb_cycle[i], s=90, marker="+")
         plt.scatter(df['gpu_recall'].values[i], df['gpu_precision'].values[i], c=rgb_cycle[i], s=90, marker="x")
@@ -459,9 +469,9 @@ if __name__ == "__main__":
     # cpu_gpu_copy()
     # cpu_gpu()
     # cpu_gpu_standard()
-    # accuracy()
+    # accuracy(save=True)
     # accuracy_plot()
-    # accuracy_pdf()
+    accuracy_pdf()
     # gpu_gpu_parallel()
     # two_plots(
     #    "/Users/maksim/dev_projects/merf/figures/time_results/gpu_standard_run_times_uf.csv",
@@ -476,10 +486,10 @@ if __name__ == "__main__":
     #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fft_run_times_uf.csv",
     #     "uf"
     # )
-    two_plots(
-        "/Users/maksim/dev_projects/merf/figures/time_results/gpu_standard_joe_deterministic.csv",
-        "joe_deterministic_standard",
-        "/Users/maksim/dev_projects/merf/figures/time_results/gpu_fftconv_run_times.csv",
-        "fft"
-    )
+    # two_plots(
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_4_gpus.csv",
+    #     "4 gpus",
+    #     "/Users/maksim/dev_projects/merf/figures/time_results/gpu_model_parallel_fft_run_times_uf_2_gpus.csv",
+    #     "2 gpus"
+    # )
     # uf_plots()

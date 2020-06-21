@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.backends import cudnn
-cudnn.deterministic = True
+cudnn.deterministic = False
 from torch.utils.data import DataLoader
 from skimage import io, img_as_float
 from skimage.filters import gaussian
@@ -505,7 +505,7 @@ def preprocess_times():
 
 
 if __name__ == "__main__":
-    # mp.set_start_method("spawn")
+    mp.set_start_method("spawn")
     # print("gpu_fft_run_times")
     # gpu_fft_run_times("gpu_fft_run_times_joe_deterministic")
     print("gpu_standard_run_times")
@@ -529,6 +529,6 @@ if __name__ == "__main__":
     #
     # print("preprocess times")
     # preprocess_times()
-    # for NUM_GPUS in range(4, 5):
-    #     print("gpu_model_parallel_fft_run_times")
-    #     gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus")
+    for NUM_GPUS in range(2, 5):
+        print("gpu_model_parallel_fft_run_times")
+        gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus_100_bins")
