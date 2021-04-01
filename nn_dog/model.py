@@ -121,7 +121,7 @@ class DifferenceOfGaussiansStandardConv(nn.Module):
         else:
             blobs = cds
 
-        blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
+        # blobs[:, 2] = blobs[:, 2] * math.sqrt(2)
         return blobs
 
 

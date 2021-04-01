@@ -79,7 +79,10 @@ class PLIF(Dataset):
     """Face Landmarks dataset."""
 
     def __init__(self, plif_dir: Path, ext="TIF", include_paths=False):
-        self.img_paths = glob.glob(str(plif_dir / f"*.{ext}"))
+        img_fp = str(plif_dir /  f"**/*.{ext}")
+        print(img_fp)
+        self.img_paths = glob.glob(img_fp, recursive=True)
+        assert len(self.img_paths), "no images"
         self.include_paths = include_paths
 
     def transform(self, img):

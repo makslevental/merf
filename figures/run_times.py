@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from torch.backends import cudnn
+
 cudnn.deterministic = False
 from torch.utils.data import DataLoader
 from skimage import io, img_as_float
@@ -13,8 +14,7 @@ from skimage.filters import gaussian
 import torch.multiprocessing as mp
 from nn_dog import PIN_MEMORY, DEVICE, NUM_GPUS
 from nn_dog.data import SimulPLIF
-from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv, DifferenceOfGaussiansFFTParallel, \
-    close_pool
+from nn_dog.model import DifferenceOfGaussiansFFT, DifferenceOfGaussiansStandardConv
 from sk_image.blob import cpu_blob_dog
 from sk_image.enhance_contrast import stretch_composite_histogram
 
@@ -134,6 +134,7 @@ def gpu_fft_run_times(fn):
                 #     break
                 # break
 
+
 def gpu_model_parallel_fft_run_times(fn):
     image_pth = Path(os.path.dirname(os.path.realpath(__file__))) / Path(
         "../simulation/screenshot.png"
@@ -188,7 +189,6 @@ def gpu_model_parallel_fft_run_times(fn):
                         writer.writerow(res)
                         print(res)
                     # close_pool(pool)
-
 
 
 def gpu_fft_run_times_with_img_copy():
@@ -505,7 +505,7 @@ def preprocess_times():
 
 
 if __name__ == "__main__":
-    mp.set_start_method("spawn")
+    # mp.set_start_method("spawn")
     # print("gpu_fft_run_times")
     # gpu_fft_run_times("gpu_fft_run_times_joe_deterministic")
     print("gpu_standard_run_times")
@@ -529,6 +529,6 @@ if __name__ == "__main__":
     #
     # print("preprocess times")
     # preprocess_times()
-    for NUM_GPUS in range(2, 5):
-        print("gpu_model_parallel_fft_run_times")
-        gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus_100_bins")
+    # for NUM_GPUS in range(2, 5):
+    #     print("gpu_model_parallel_fft_run_times")
+    #     gpu_model_parallel_fft_run_times(f"gpu_model_parallel_fft_run_times_uf_{NUM_GPUS}_gpus_100_bins")
